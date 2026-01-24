@@ -1,15 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, SafeAreaView,
-  ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View
+    ActivityIndicator, Alert, FlatList,
+    Image,
+    KeyboardAvoidingView, Modal, Platform, SafeAreaView,
+    ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 
-// --- CONFIGURAZIONE SUPABASE ---
+// --- CONFIGURAZIONE CHIAVI ---
+const WEATHER_API_KEY = 'b9f05ba6cff60cec20886ba24b486241'; 
+const OPENAI_API_KEY = '[REMOVED_OPENAI_KEY]'; 
 const supabaseUrl = 'https://azkpckrybldypqwdksjc.supabase.co';
 const supabaseKey = 'sb_publishable_b9EMDrQXatPARFQrhpoTVA_gQdx7kgq';
 const supabase = createClient(supabaseUrl, supabaseKey, {
@@ -22,10 +27,11 @@ const THEME = {
   textDark: '#1B5E20', accent: '#00C853', primary: '#1A237E',
   danger: '#D32F2F', warning: '#FF9800', info: '#2196F3',
   secondary: '#ECEFF1', iconInactive: '#B0BEC5', tableHeader: '#E0E0E0',
-  fogliare: '#E8F5E9', radicale: '#FFF3E0' 
+  fogliare: '#E8F5E9', radicale: '#FFF3E0',
+  ai: '#7C4DFF' 
 };
 
-// --- COMPONENTE EVIDENZIATORE ---
+// --- EVIDENZIATORE ---
 const HighlightText = ({ text, term, baseStyle }) => {
     if (!text) return null;
     const str = String(text);
@@ -56,11 +62,21 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
 
-  // --- BIG DATA & PROFILAZIONE ---
+  // --- BIG DATA & METEO & AI ---
   const [deviceId, setDeviceId] = useState(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false); // NUOVO: Modal Modifica
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [welcomeData, setWelcomeData] = useState({ tipo: 'HOBBISTA', citta: '', mq: '' });
+  const [weatherData, setWeatherData] = useState(null); 
+  
+  // AI STATES
+  const [showContextModal, setShowContextModal] = useState(false); // NUOVO MODAL CONTESTO
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiImage, setAiImage] = useState(null);
+  const [aiContextData, setAiContextData] = useState({ date: '', city: '' }); // DATI MANUALI
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+  const [aiRecommendedProducts, setAiRecommendedProducts] = useState([]); 
 
   // AUTH
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -83,11 +99,10 @@ export default function App() {
   const [mixItems, setMixItems] = useState([]); 
   const [showMixListModal, setShowMixListModal] = useState(false);
   
-  // EXTRA FEATURES
+  // EXTRA
   const [showSOSModal, setShowSOSModal] = useState(false);
   const [sosSearch, setSosSearch] = useState(''); 
   const [showFavModal, setShowFavModal] = useState(false); 
-
   const [selectedProduct, setSelectedProduct] = useState(null); 
   const [lawnSize, setLawnSize] = useState(''); 
   const [favorites, setFavorites] = useState([]);
@@ -96,7 +111,7 @@ export default function App() {
   const [clientAlerts, setClientAlerts] = useState([]);
   const [selectedAlert, setSelectedAlert] = useState(null); 
 
-  // DASHBOARD AGENTE
+  // AGENT
   const [agentProfileId, setAgentProfileId] = useState(null); 
   const [agentTab, setAgentTab] = useState('CODES'); 
   const [agentCodes, setAgentCodes] = useState([]); 
@@ -107,9 +122,12 @@ export default function App() {
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [sentAlerts, setSentAlerts] = useState([]);
 
-  // --- INIZIALIZZAZIONE & TRACKING ---
+  // --- INIT ---
   useEffect(() => { 
-    checkUserIdentity();
+    checkUserIdentity().then((id) => {
+        if(id) loadUserProfile(id);
+    });
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       loadCommonData().then(() => { if(session) initAppAgente(session); else initAppCliente(); });
@@ -121,7 +139,7 @@ export default function App() {
     });
   }, []);
 
-  // --- FUNZIONI BIG DATA ---
+  // --- LOGICA BIG DATA & METEO & AI ---
   const checkUserIdentity = async () => {
       try {
           let id = await AsyncStorage.getItem('DEVICE_ID');
@@ -130,8 +148,171 @@ export default function App() {
               await AsyncStorage.setItem('DEVICE_ID', id);
           }
           setDeviceId(id);
-      } catch (e) { console.log("Errore ID", e); }
+          return id;
+      } catch (e) { console.log("Errore ID", e); return null; }
   };
+
+  const loadUserProfile = async (id) => {
+      const { data, error } = await supabase.from('profili_anonimi').select('*').eq('device_id', id).single();
+      if (data) {
+          setWelcomeData({ tipo: data.tipo_utente, citta: data.citta_base, mq: data.mq_prato_default?.toString() || '' });
+          if(data.mq_prato_default) {
+              setLawnSize(data.mq_prato_default.toString());
+              AsyncStorage.setItem('LAWN_SIZE', data.mq_prato_default.toString());
+          }
+          if(data.citta_base) {
+              fetchWeather(data.citta_base);
+          }
+      }
+  };
+
+  const fetchWeather = async (city) => {
+      if(!city) return;
+      try {
+          const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${WEATHER_API_KEY}&units=metric&lang=it`);
+          const data = await response.json();
+          if(data.cod === 200) {
+              setWeatherData(data);
+              trackEvent('METEO_CHECK', `Città: ${city}, Temp: ${data.main.temp}°C, Desc: ${data.weather[0].description}`);
+          }
+      } catch(e) { console.log("Errore Meteo", e); }
+  };
+
+  // --- FUNZIONI AI (V6.5 - TIME MACHINE) ---
+  const handlePhotoAction = () => {
+      Alert.alert(
+          "Nuova Diagnosi",
+          "Scegli la fonte dell'immagine:",
+          [
+              { text: "Annulla", style: "cancel" },
+              { text: "🖼️ Galleria", onPress: () => pickImage('gallery') },
+              { text: "📸 Fotocamera", onPress: () => pickImage('camera') }
+          ]
+      );
+  };
+
+  const pickImage = async (mode) => {
+      setAiRecommendedProducts([]); 
+      let result;
+      
+      if (mode === 'camera') {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') { Alert.alert("Permesso negato", "Abilita la fotocamera."); return; }
+          result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 1, base64: true });
+      } else {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') { Alert.alert("Permesso negato", "Abilita la galleria."); return; }
+          result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 1, base64: true });
+      }
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+          setAiImage(result.assets[0]);
+          // INVECE DI ANALIZZARE SUBITO, APRIAMO IL MODAL DI CONTESTO
+          const today = new Date().toISOString().split('T')[0];
+          setAiContextData({ date: today, city: welcomeData.citta || '' });
+          setShowContextModal(true);
+      }
+  };
+
+  const startAnalysis = async () => {
+      setShowContextModal(false);
+      setAiAnalyzing(true);
+      setShowAIModal(true);
+      setAiResult(null);
+      setAiRecommendedProducts([]);
+
+      // 1. LOGICA METEO "TIME MACHINE"
+      let weatherContext = "Dato Meteo non disponibile (Data passata o errore).";
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Se la data è OGGI, scarichiamo il meteo live
+      if (aiContextData.date === today && aiContextData.city) {
+          try {
+              const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${aiContextData.city}&appid=${WEATHER_API_KEY}&units=metric&lang=it`);
+              const wData = await response.json();
+              if(wData.cod === 200) {
+                  weatherContext = `CONTESTO AMBIENTALE (LIVE):
+                  - Città: ${wData.name}
+                  - Temperatura: ${wData.main.temp}°C
+                  - Condizione: ${wData.weather[0].description}
+                  - Umidità: ${wData.main.humidity}%
+                  Usa questi dati per la diagnosi.`;
+              }
+          } catch(e) { console.log("Err Meteo AI", e); }
+      } else {
+          weatherContext = `CONTESTO AMBIENTALE:
+          - Data Foto: ${aiContextData.date} (Passato)
+          - Luogo: ${aiContextData.city}
+          *NOTA: Non abbiamo dati meteo storici precisi. Basati visivamente sull'immagine e sulla stagione indicata dalla data.*`;
+      }
+
+      // 2. CHIAMATA A GPT-4o-mini
+      try {
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+              body: JSON.stringify({
+                  model: "gpt-4o-mini",
+                  messages: [
+                      {
+                          role: "system",
+                          content: `Sei un Agronomo Senior (Turfgrass Pathology). Analizza la foto con cura.
+                          
+                          OBIETTIVO: Identificare malattie (Pythium, Rhizoctonia, Dollar Spot...), infestanti o stress.
+                          
+                          IMPORTANTE:
+                          1. Considera il CONTESTO fornito (Data e Meteo se presente).
+                          2. Sii DIRETTO. Dai una % di confidenza (es. "Rhizoctonia al 95%").
+                          3. Se è un fungo, spiega perché (es. "vedo micelio, macchie circolari").
+                          4. Alla fine, scrivi ESATTAMENTE: "CONSIGLIO CATEGORIA: [TIPO]" scegliendo tra: FUNGICIDA, INSETTICIDA, DISERBANTE, CONCIME.`
+                      },
+                      {
+                          role: "user",
+                          content: [
+                              { type: "text", text: `Analizza questo prato. ${weatherContext}` },
+                              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${aiImage.base64}` } }
+                          ]
+                      }
+                  ],
+                  max_tokens: 450
+              })
+          });
+
+          const data = await response.json();
+          
+          if(data.error) {
+              setAiResult(`Errore AI: ${data.error.message}`);
+          } else if(data.choices && data.choices.length > 0) {
+              const diagnosis = data.choices[0].message.content;
+              setAiResult(diagnosis);
+              trackEvent('DIAGNOSI_AI', `Successo - Data: ${aiContextData.date}`);
+
+              // --- LOGICA DI RACCOMANDAZIONE ---
+              let keyword = '';
+              const dUpper = diagnosis.toUpperCase();
+              if (dUpper.includes('FUNGICIDA') || dUpper.includes('FUNGHI') || dUpper.includes('PYTHIUM') || dUpper.includes('RHIZOCTONIA')) keyword = 'FUNGICIDA';
+              else if (dUpper.includes('INSETTICIDA') || dUpper.includes('LARVE') || dUpper.includes('INSETTI')) keyword = 'INSETTICIDA';
+              else if (dUpper.includes('DISERBANTE') || dUpper.includes('INFESTANTI')) keyword = 'DISERBANTE';
+              else if (dUpper.includes('CONCIME') || dUpper.includes('CARENZA') || dUpper.includes('STRESS')) keyword = 'CONCIME';
+
+              if (keyword) {
+                  let recs = productsDB.filter(p => p.categoria && p.categoria.toUpperCase().includes(keyword));
+                  if(keyword === 'CONCIME') {
+                      recs = productsDB.filter(p => !['FUNGICIDA','INSETTICIDA','DISERBANTE'].includes(p.categoria.toUpperCase()) && (p.categoria.toUpperCase().includes('CONCIME') || p.categoria.toUpperCase().includes('BOTTOS')));
+                  }
+                  setAiRecommendedProducts(recs.slice(0, 5)); 
+              }
+          } else {
+              setAiResult("Non riesco a identificare il problema.");
+          }
+
+      } catch (error) {
+          setAiResult("Errore di connessione.");
+      } finally {
+          setAiAnalyzing(false);
+      }
+  };
+
 
   const handleEnterShop = async () => {
       setUserRole('CLIENTE');
@@ -155,12 +336,12 @@ export default function App() {
               setLawnSize(welcomeData.mq);
               AsyncStorage.setItem('LAWN_SIZE', welcomeData.mq);
           }
+          fetchWeather(welcomeData.citta); // Aggiorna meteo subito
           trackEvent('REGISTRAZIONE_PROFILO', `Tipo: ${welcomeData.tipo}, Città: ${welcomeData.citta}`);
           setShowWelcomeModal(false);
       } catch (e) { Alert.alert("Errore", "Riprova."); }
   };
 
-  // NUOVA FUNZIONE PER AGGIORNARE LE IMPOSTAZIONI
   const handleUpdateProfile = async () => {
       if(!welcomeData.citta) return Alert.alert("Manca la città", "Inserisci la tua zona.");
       try {
@@ -175,7 +356,8 @@ export default function App() {
               setLawnSize(welcomeData.mq);
               AsyncStorage.setItem('LAWN_SIZE', welcomeData.mq);
           }
-          Alert.alert("Fatto", "Profilo aggiornato!");
+          fetchWeather(welcomeData.citta); // Aggiorna meteo
+          Alert.alert("Fatto", "Profilo e Meteo aggiornati!");
           setShowSettingsModal(false);
           trackEvent('AGGIORNAMENTO_PROFILO', `Nuovo Tipo: ${welcomeData.tipo}`);
       } catch (e) { Alert.alert("Errore", "Riprova."); }
@@ -264,7 +446,7 @@ export default function App() {
 
   const handleLogout = async () => { setUserRole(null); setSession(null); setAgentCodes([]); setSentAlerts([]); setIsPendingApproval(false); await supabase.auth.signOut(); };
 
-  // AGENT LOGIC
+  // --- ALTRI COMPONENTI ---
   const fetchAgentCodes = async (profileId) => { if(!profileId) return; const { data } = await supabase.from('listini').select('*').eq('agente_id', profileId).order('created_at', { ascending: false }); if(data) setAgentCodes(data); };
   const fetchAgentAlerts = async (email) => { if(!email) return; const { data } = await supabase.from('alerts').select('*').eq('agent_email', email).order('created_at', { ascending: false }); if(data) setSentAlerts(data); };
   const saveOrUpdateCode = async () => {
@@ -286,7 +468,6 @@ export default function App() {
   };
   const deleteAlert = async (id) => { await supabase.from('alerts').delete().eq('id', id); fetchAgentAlerts(session?.user?.email); };
 
-  // CLIENT LOGIC
   const validaCodice = async () => {
      if(!inputCodicePartner) return;
      const code = inputCodicePartner.toUpperCase().trim();
@@ -424,6 +605,7 @@ export default function App() {
     </SafeAreaView>
   );
 
+  // --- UI: SHOP CLIENTI ---
   return (
     <SafeAreaView style={{flex:1, backgroundColor:THEME.bg, paddingTop: Platform.OS==='android'?StatusBar.currentHeight:0}}>
       <StatusBar barStyle="dark-content"/>
@@ -435,7 +617,7 @@ export default function App() {
              <TouchableOpacity onPress={()=>setUserRole(null)}><Ionicons name="arrow-back" size={26} color={THEME.textDark}/></TouchableOpacity>
              <BrandLogo/>
              <View style={{flexDirection:'row', alignItems:'center', gap:15}}>
-                 {/* NUOVO TASTO IMPOSTAZIONI */}
+                 {/* SETTINGS BUTTON */}
                  <TouchableOpacity onPress={()=>setShowSettingsModal(true)}>
                      <Ionicons name="settings-outline" size={24} color={THEME.textDark}/>
                  </TouchableOpacity>
@@ -445,6 +627,34 @@ export default function App() {
                  </TouchableOpacity>
              </View>
          </View>
+         
+         {/* --- WIDGET METEO --- */}
+         {weatherData && (
+             <View style={styles.weatherCard}>
+                 <View style={{flexDirection:'row', alignItems:'center', justifyContent:'space-between'}}>
+                     <View style={{flexDirection:'row', alignItems:'center'}}>
+                         {weatherData.weather[0].main === 'Rain' ? <Ionicons name="rainy" size={32} color="#4FC3F7"/> :
+                          weatherData.weather[0].main === 'Clouds' ? <Ionicons name="cloud" size={32} color="#B0BEC5"/> :
+                          <Ionicons name="sunny" size={32} color="#FFB300"/>}
+                         <View style={{marginLeft:10}}>
+                             <Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:12}}>METEO {weatherData.name.toUpperCase()}</Text>
+                             <Text style={{fontSize:20, fontWeight:'900', color:'#333'}}>{Math.round(weatherData.main.temp)}°C</Text>
+                         </View>
+                     </View>
+                     <View style={{alignItems:'flex-end'}}>
+                         {weatherData.rain ? (
+                             <Text style={{color:THEME.accent, fontWeight:'bold'}}>💧 RISPARMIA ACQUA</Text>
+                         ) : weatherData.main.temp > 28 ? (
+                             <Text style={{color:THEME.danger, fontWeight:'bold'}}>🔥 IRRIGA OGGI</Text>
+                         ) : (
+                             <Text style={{color:THEME.info, fontWeight:'bold'}}>✅ STANDARD</Text>
+                         )}
+                         <Text style={{fontSize:10, color:'#666'}}>{weatherData.weather[0].description}</Text>
+                     </View>
+                 </View>
+             </View>
+         )}
+
          <View style={[styles.searchBox, {marginBottom: 10}]}><Ionicons name="key" size={20} color="#999"/><TextInput style={[styles.searchInput]} placeholder="Aggiungi Codice Listino..." value={inputCodicePartner} onChangeText={setInputCodicePartner}/><TouchableOpacity onPress={validaCodice}><Ionicons name="add-circle" size={30} color={THEME.accent}/></TouchableOpacity></View>
          {activePartners.length > 0 && (<ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10, maxHeight:40}}>{activePartners.map((partner, idx) => (<TouchableOpacity key={idx} onPress={()=>removePartner(partner.codice_sconto)} style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.primary, paddingHorizontal:10, paddingVertical:5, borderRadius:20, marginRight:8}}><Text style={{color:'#fff', fontSize:11, fontWeight:'bold'}}>{partner.azienda} - {partner.nome_agente}</Text><Ionicons name="close-circle" size={16} color="#fff" style={{marginLeft:5}}/></TouchableOpacity>))}</ScrollView>)}
          <View style={styles.searchBox}>
@@ -508,7 +718,12 @@ export default function App() {
       />
       
       {/* --- FAB BUTTONS --- */}
-      <View style={{position:'absolute', bottom:30, right:20, flexDirection:'row', gap:15}}>
+      <View style={{position:'absolute', bottom:30, right:20, gap:15, alignItems:'flex-end'}}>
+         {/* TASTO AI CAMERA */}
+         <TouchableOpacity style={[styles.fab, {backgroundColor:THEME.ai, width:60, height:60, borderRadius:30, justifyContent:'center', paddingHorizontal:0}]} onPress={handlePhotoAction}>
+             <Ionicons name="camera" size={30} color="#fff"/>
+         </TouchableOpacity>
+
          <TouchableOpacity style={[styles.fab, {backgroundColor:THEME.danger}]} onPress={()=>{ setShowSOSModal(true); trackEvent('APERTURA_FARMACIA', 'SOS Button'); }}>
              <Ionicons name="medkit" size={24} color="#fff"/>
              <Text style={styles.fabText}>SOS</Text>
@@ -517,6 +732,80 @@ export default function App() {
          {mixItems.length > 0 && (<TouchableOpacity style={[styles.fab, {backgroundColor:THEME.primary}]} onPress={()=>setShowMixListModal(true)}><Ionicons name="flask" size={24} color="#fff"/><Text style={styles.fabText}>MIX ({mixItems.length})</Text></TouchableOpacity>)}
          {cartItems.length > 0 && (<TouchableOpacity style={[styles.fab, {backgroundColor:THEME.accent}]} onPress={()=>setShowCartModal(true)}><Ionicons name="cart" size={24} color="#fff"/><Text style={styles.fabText}>ORDINE ({cartItems.length})</Text></TouchableOpacity>)}
       </View>
+
+      {/* --- MODAL CONTESTO (TIME MACHINE) --- */}
+      <Modal visible={showContextModal} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                  <Text style={{fontSize:20, fontWeight:'bold', color:THEME.textDark, marginBottom:10}}>Dettagli Foto 📸</Text>
+                  {aiImage && <Image source={{uri: aiImage.uri}} style={{width:150, height:100, borderRadius:10, marginBottom:15}} />}
+                  <Text style={{textAlign:'center', color:'#666', marginBottom:20, fontSize:12}}>Inserisci data e luogo per aiutare l'Agronomo Digitale a capire il clima.</Text>
+                  
+                  <View style={styles.inputContainer}>
+                      <Ionicons name="calendar" size={20} color="#666" style={{marginRight:10}}/>
+                      <TextInput style={{flex:1}} placeholder="YYYY-MM-DD" value={aiContextData.date} onChangeText={t=>setAiContextData({...aiContextData, date:t})}/>
+                  </View>
+                  <View style={styles.inputContainer}>
+                      <Ionicons name="location" size={20} color="#666" style={{marginRight:10}}/>
+                      <TextInput style={{flex:1}} placeholder="Città (es. Milano)" value={aiContextData.city} onChangeText={t=>setAiContextData({...aiContextData, city:t})}/>
+                  </View>
+
+                  <TouchableOpacity style={[styles.btnBig, {marginTop:10}]} onPress={startAnalysis}>
+                      <Text style={styles.btnText}>ANALIZZA ORA</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={()=>{setShowContextModal(false); setAiImage(null);}} style={{marginTop:15}}>
+                      <Text style={{color:THEME.danger}}>Annulla</Text>
+                  </TouchableOpacity>
+              </View>
+          </View>
+      </Modal>
+
+      {/* --- MODAL AI RESULT (AGGIORNATA CON PRODOTTI) --- */}
+      <Modal visible={showAIModal} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                  <View style={{alignItems:'center', marginBottom:15}}>
+                      <Ionicons name="eye" size={40} color={THEME.ai} />
+                      <Text style={{fontSize:20, fontWeight:'bold', color:THEME.ai, marginTop:10}}>DIAGNOSI AI</Text>
+                  </View>
+                  
+                  {aiImage && <Image source={{uri: aiImage.uri}} style={{width:200, height:150, borderRadius:10, marginBottom:15}} />}
+
+                  {aiAnalyzing ? (
+                      <View style={{alignItems:'center', padding:20}}>
+                          <ActivityIndicator size="large" color={THEME.ai} />
+                          <Text style={{marginTop:15, color:'#666'}}>Sto analizzando il prato...</Text>
+                      </View>
+                  ) : (
+                      <>
+                      <ScrollView style={{maxHeight: 150, width:'100%', marginBottom:15}}>
+                          <Text style={{fontSize:16, lineHeight:24, color:'#333', textAlign:'justify'}}>{aiResult}</Text>
+                      </ScrollView>
+
+                      {/* SEZIONE PRODOTTI CONSIGLIATI */}
+                      {aiRecommendedProducts.length > 0 && (
+                          <View style={{width:'100%', borderTopWidth:1, borderColor:'#eee', paddingTop:10, marginBottom:15}}>
+                              <Text style={{fontWeight:'bold', color:THEME.accent, marginBottom:10}}>SOLUZIONI CONSIGLIATE:</Text>
+                              {aiRecommendedProducts.map((p, i) => (
+                                  <TouchableOpacity key={i} onPress={()=>{setSelectedProduct(p);}} style={{flexDirection:'row', alignItems:'center', padding:10, backgroundColor:'#f9f9f9', marginBottom:5, borderRadius:8, borderLeftWidth:4, borderColor:THEME.accent}}>
+                                      <View style={{flex:1}}>
+                                          <Text style={{fontWeight:'bold', fontSize:12}}>{p.nome}</Text>
+                                          <Text style={{fontSize:10, color:'#666'}}>{p.marca}</Text>
+                                      </View>
+                                      <Ionicons name="arrow-forward-circle" size={24} color={THEME.accent}/>
+                                  </TouchableOpacity>
+                              ))}
+                          </View>
+                      )}
+                      
+                      <TouchableOpacity onPress={()=>{setShowAIModal(false); setSosSearch('');}} style={{alignSelf:'center', marginTop:5}}>
+                             <Text style={{color:'#666', fontSize:12}}>Chiudi</Text>
+                      </TouchableOpacity>
+                      </>
+                  )}
+              </View>
+          </View>
+      </Modal>
       
       {/* --- MODAL SOS FARMACIA --- */}
       <Modal visible={showSOSModal} animationType="slide">
@@ -735,5 +1024,8 @@ const styles = StyleSheet.create({
   newPeriodCard: { flexDirection:'row', alignItems:'center', backgroundColor:'#EDE7F6', borderColor:'#7E57C2', borderWidth:1, borderRadius:12, padding:15, marginTop:0 },
   newCalcBox: { backgroundColor:'#F9FBE7', padding:30, borderRadius:20, marginTop:30, alignItems:'center' },
   newCalcInput: { backgroundColor:'#fff', width:'80%', fontSize:24, fontWeight:'bold', textAlign:'center', padding:15, borderRadius:10, elevation:2, marginBottom:20 },
-  newCalcResult: { fontSize:48, fontWeight:'bold', color:'#5E35B1' }
+  newCalcResult: { fontSize:48, fontWeight:'bold', color:'#5E35B1' },
+  
+  // METEO STYLE
+  weatherCard: { backgroundColor:'#fff', padding:15, borderRadius:12, marginBottom:15, shadowColor:'#000', shadowOpacity:0.05, shadowRadius:5, elevation:2 }
 });
