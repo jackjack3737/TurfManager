@@ -28,22 +28,22 @@ const THEME = {
   danger: '#D32F2F', warning: '#FF9800', info: '#2196F3',
   secondary: '#ECEFF1', iconInactive: '#B0BEC5', tableHeader: '#E0E0E0',
   fogliare: '#E8F5E9', radicale: '#FFF3E0',
-  ai: '#7C4DFF' 
+  ai: '#7C4DFF',
+  highlight: '#00E676'
 };
 
 // --- EVIDENZIATORE ---
 const HighlightText = ({ text, term, baseStyle }) => {
     if (!text) return null;
     const str = String(text);
-    if (!term || term.trim() === '') return <Text style={baseStyle}>{str}</Text>;
-    const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escapedTerm})`, 'gi');
-    const parts = str.split(regex);
+    if (!term || term.trim().length < 2) return <Text style={baseStyle}>{str}</Text>;
+    const parts = str.split(new RegExp(`(${term})`, 'gi'));
     return (
         <Text style={baseStyle}>
-            {parts.map((part, i) => (i % 2 === 1) ? 
-                <Text key={i} style={{ backgroundColor: '#C8E6C9', color: '#1B5E20', fontWeight: 'bold' }}>{part}</Text> : 
-                <Text key={i}>{part}</Text>
+            {parts.map((part, i) => 
+                part.toLowerCase() === term.toLowerCase() 
+                ? <Text key={i} style={{ backgroundColor: THEME.highlight, color: '#000' }}>{part}</Text>
+                : <Text key={i}>{part}</Text>
             )}
         </Text>
     );
@@ -55,6 +55,49 @@ const BrandLogo = ({scale = 1}) => (
     <Text style={{fontSize:10, color:THEME.accent, fontWeight:'bold', letterSpacing:1}}>powered by SINELICA</Text>
   </View>
 );
+
+// --- FUNZIONI COSMETICHE ---
+const getCategoryColor = (categoria) => {
+    if (!categoria) return '#90A4AE';
+    const c = categoria.toUpperCase();
+    if (c.includes('FUNGICIDA') || c.includes('DISERBANTE') || c.includes('INSETTICIDA')) return '#D32F2F'; // Rosso
+    if (c.includes('CONCIME') || c.includes('FERTILIZZANTE')) return '#2E7D32'; // Verde
+    if (c.includes('BIO') || c.includes('STIMOLANTE')) return '#FF8F00'; // Arancio
+    if (c.includes('SEMENTI') || c.includes('PRATO')) return '#1565C0'; // Blu
+    return '#607D8B';
+};
+
+const shouldShowBrand = (categoria) => {
+    if (!categoria) return true;
+    const c = categoria.toUpperCase();
+    if (c.includes('FUNGICIDA') || c.includes('DISERBANTE') || c.includes('INSETTICIDA') || c.includes('PFNPE')) return false;
+    return true; 
+};
+
+const getCleanCategoryName = (categoria) => {
+    if (!categoria) return '';
+    const c = categoria.toUpperCase();
+    if (c.includes('CONCIME')) return 'NUTRIZIONE'; 
+    if (c.includes('FUNGICIDA')) return 'FUNGICIDA';
+    if (c.includes('DISERBANTE')) return 'DISERBANTE';
+    if (c.includes('INSETTICIDA')) return 'INSETTICIDA';
+    if (c.includes('SEMENTI')) return 'SEMENTI';
+    return c;
+};
+
+const isPharmacyCategory = (cat) => {
+    if(!cat) return false;
+    const c = cat.toUpperCase();
+    return c.includes('FUNGICIDA') || c.includes('DISERBANTE') || c.includes('INSETTICIDA') || c.includes('PFNPE');
+};
+
+const getDisplayUnit = (unit) => {
+    if(!unit) return '';
+    const u = unit.toLowerCase();
+    if(u === 'ml' || u === 'l' || u === 'lt') return 'L';
+    if(u === 'g' || u === 'kg') return 'Kg';
+    return unit;
+};
 
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
@@ -70,10 +113,10 @@ export default function App() {
   const [weatherData, setWeatherData] = useState(null); 
   
   // AI STATES
-  const [showContextModal, setShowContextModal] = useState(false); // NUOVO MODAL CONTESTO
+  const [showContextModal, setShowContextModal] = useState(false); 
   const [showAIModal, setShowAIModal] = useState(false);
   const [aiImage, setAiImage] = useState(null);
-  const [aiContextData, setAiContextData] = useState({ date: '', city: '' }); // DATI MANUALI
+  const [aiContextData, setAiContextData] = useState({ date: '', city: '', plantType: '' }); 
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState(null);
   const [aiRecommendedProducts, setAiRecommendedProducts] = useState([]); 
@@ -139,7 +182,7 @@ export default function App() {
     });
   }, []);
 
-  // --- LOGICA BIG DATA & METEO & AI ---
+  // --- LOGICA USER & METEO ---
   const checkUserIdentity = async () => {
       try {
           let id = await AsyncStorage.getItem('DEVICE_ID');
@@ -178,23 +221,18 @@ export default function App() {
       } catch(e) { console.log("Errore Meteo", e); }
   };
 
-  // --- FUNZIONI AI (V6.5 - TIME MACHINE) ---
+  // --- FUNZIONI AI ---
   const handlePhotoAction = () => {
-      Alert.alert(
-          "Nuova Diagnosi",
-          "Scegli la fonte dell'immagine:",
-          [
-              { text: "Annulla", style: "cancel" },
-              { text: "🖼️ Galleria", onPress: () => pickImage('gallery') },
-              { text: "📸 Fotocamera", onPress: () => pickImage('camera') }
-          ]
-      );
+      Alert.alert("Nuova Diagnosi", "Scegli la fonte dell'immagine:", [
+          { text: "Annulla", style: "cancel" },
+          { text: "🖼️ Galleria", onPress: () => pickImage('gallery') },
+          { text: "📸 Fotocamera", onPress: () => pickImage('camera') }
+      ]);
   };
 
   const pickImage = async (mode) => {
       setAiRecommendedProducts([]); 
       let result;
-      
       if (mode === 'camera') {
           const { status } = await ImagePicker.requestCameraPermissionsAsync();
           if (status !== 'granted') { Alert.alert("Permesso negato", "Abilita la fotocamera."); return; }
@@ -207,9 +245,8 @@ export default function App() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
           setAiImage(result.assets[0]);
-          // INVECE DI ANALIZZARE SUBITO, APRIAMO IL MODAL DI CONTESTO
           const today = new Date().toISOString().split('T')[0];
-          setAiContextData({ date: today, city: welcomeData.citta || '' });
+          setAiContextData({ date: today, city: welcomeData.citta || '', plantType: '' });
           setShowContextModal(true);
       }
   };
@@ -221,32 +258,24 @@ export default function App() {
       setAiResult(null);
       setAiRecommendedProducts([]);
 
-      // 1. LOGICA METEO "TIME MACHINE"
-      let weatherContext = "Dato Meteo non disponibile (Data passata o errore).";
+      let weatherContext = "Dato Meteo non disponibile.";
       const today = new Date().toISOString().split('T')[0];
       
-      // Se la data è OGGI, scarichiamo il meteo live
       if (aiContextData.date === today && aiContextData.city) {
           try {
               const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${aiContextData.city}&appid=${WEATHER_API_KEY}&units=metric&lang=it`);
               const wData = await response.json();
               if(wData.cod === 200) {
-                  weatherContext = `CONTESTO AMBIENTALE (LIVE):
-                  - Città: ${wData.name}
-                  - Temperatura: ${wData.main.temp}°C
-                  - Condizione: ${wData.weather[0].description}
-                  - Umidità: ${wData.main.humidity}%
-                  Usa questi dati per la diagnosi.`;
+                  weatherContext = `CONTESTO LIVE: Città: ${wData.name}, Temp: ${wData.main.temp}°C, Umidità: ${wData.main.humidity}%`;
               }
           } catch(e) { console.log("Err Meteo AI", e); }
-      } else {
-          weatherContext = `CONTESTO AMBIENTALE:
-          - Data Foto: ${aiContextData.date} (Passato)
-          - Luogo: ${aiContextData.city}
-          *NOTA: Non abbiamo dati meteo storici precisi. Basati visivamente sull'immagine e sulla stagione indicata dalla data.*`;
       }
 
-      // 2. CHIAMATA A GPT-4o-mini
+      let plantContext = "";
+      if (aiContextData.plantType && aiContextData.plantType.trim() !== "") {
+          plantContext = `L'utente dichiara che la pianta è: ${aiContextData.plantType}. Usalo come base per la diagnosi.`;
+      }
+
       try {
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
               method: 'POST',
@@ -256,88 +285,76 @@ export default function App() {
                   messages: [
                       {
                           role: "system",
-                          content: `Sei un Agronomo Senior (Turfgrass Pathology). Analizza la foto con cura.
-                          
-                          OBIETTIVO: Identificare malattie (Pythium, Rhizoctonia, Dollar Spot...), infestanti o stress.
-                          
-                          IMPORTANTE:
-                          1. Considera il CONTESTO fornito (Data e Meteo se presente).
-                          2. Sii DIRETTO. Dai una % di confidenza (es. "Rhizoctonia al 95%").
-                          3. Se è un fungo, spiega perché (es. "vedo micelio, macchie circolari").
-                          4. Alla fine, scrivi ESATTAMENTE: "CONSIGLIO CATEGORIA: [TIPO]" scegliendo tra: FUNGICIDA, INSETTICIDA, DISERBANTE, CONCIME.`
+                          content: `Sei un Agronomo Esperto e Analista Botanico.
+                          PROTOCOLLO DI ANALISI RIGOROSO:
+                          1. **IDENTIFICAZIONE**: Se l'utente non l'ha specificato, identifica la pianta.
+                          2. **DIAGNOSI SINTOMATICA PRECISA**:
+                             - **CARENZE**: Non dire "carenza generica". 
+                               -> Giallo internervale? Carenza FERRO/MANGANESE.
+                               -> Giallo vecchio? Carenza AZOTO.
+                               -> Bordi bruciati? Carenza POTASSIO.
+                             - **FUNGHI**: Cerca micelio, pustole, macchie concentriche.
+                             - **PARASSITI**: Cerca melata, puntini, deformazioni.
+                          3. **SICUREZZA**: Esprimi la diagnosi con una % di probabilità alta se i segni sono evidenti.
+                          4. **AZIONE**: Concludi SEMPRE con: "CONSIGLIO CATEGORIA: [TIPO]" scegliendo SOLO tra: FUNGICIDA, INSETTICIDA, DISERBANTE, CONCIME.`
                       },
                       {
                           role: "user",
                           content: [
-                              { type: "text", text: `Analizza questo prato. ${weatherContext}` },
+                              { type: "text", text: `Analizza questa immagine. ${plantContext} ${weatherContext}` },
                               { type: "image_url", image_url: { url: `data:image/jpeg;base64,${aiImage.base64}` } }
                           ]
                       }
                   ],
-                  max_tokens: 450
+                  max_tokens: 600
               })
           });
 
           const data = await response.json();
-          
-          if(data.error) {
-              setAiResult(`Errore AI: ${data.error.message}`);
-          } else if(data.choices && data.choices.length > 0) {
+          if(data.error) { setAiResult(`Errore AI: ${data.error.message}`); } 
+          else if(data.choices && data.choices.length > 0) {
               const diagnosis = data.choices[0].message.content;
               setAiResult(diagnosis);
-              trackEvent('DIAGNOSI_AI', `Successo - Data: ${aiContextData.date}`);
+              trackEvent('DIAGNOSI_AI', `Successo`);
 
-              // --- LOGICA DI RACCOMANDAZIONE ---
               let keyword = '';
               const dUpper = diagnosis.toUpperCase();
-              if (dUpper.includes('FUNGICIDA') || dUpper.includes('FUNGHI') || dUpper.includes('PYTHIUM') || dUpper.includes('RHIZOCTONIA')) keyword = 'FUNGICIDA';
-              else if (dUpper.includes('INSETTICIDA') || dUpper.includes('LARVE') || dUpper.includes('INSETTI')) keyword = 'INSETTICIDA';
+              
+              if (dUpper.includes('FUNGICIDA') || dUpper.includes('FUNGHI') || dUpper.includes('OIDIO') || dUpper.includes('TICCHIOLATURA')) keyword = 'FUNGICIDA';
+              else if (dUpper.includes('INSETTICIDA') || dUpper.includes('AFIDI') || dUpper.includes('COCCINIGLIA') || dUpper.includes('RAGNETTO')) keyword = 'INSETTICIDA';
               else if (dUpper.includes('DISERBANTE') || dUpper.includes('INFESTANTI')) keyword = 'DISERBANTE';
-              else if (dUpper.includes('CONCIME') || dUpper.includes('CARENZA') || dUpper.includes('STRESS')) keyword = 'CONCIME';
+              else if (dUpper.includes('CONCIME') || dUpper.includes('CARENZA') || dUpper.includes('FERRO') || dUpper.includes('CLOROSI') || dUpper.includes('NUTR')) keyword = 'CONCIME';
 
               if (keyword) {
                   let recs = productsDB.filter(p => p.categoria && p.categoria.toUpperCase().includes(keyword));
+                  
+                  if (activePartners.length > 0) {
+                      const allowedBrands = activePartners.map(ap => ap.azienda.toUpperCase());
+                      recs = recs.filter(p => {
+                          if (isPharmacyCategory(p.categoria)) return true;
+                          return allowedBrands.includes(p.marca.toUpperCase());
+                      });
+                  }
+
                   if(keyword === 'CONCIME') {
-                      recs = productsDB.filter(p => !['FUNGICIDA','INSETTICIDA','DISERBANTE'].includes(p.categoria.toUpperCase()) && (p.categoria.toUpperCase().includes('CONCIME') || p.categoria.toUpperCase().includes('BOTTOS')));
+                      recs = recs.filter(p => !isPharmacyCategory(p.categoria) && (p.categoria.toUpperCase().includes('CONCIME') || p.categoria.toUpperCase().includes('BIO') || p.categoria.toUpperCase().includes('BOTTOS')));
                   }
                   setAiRecommendedProducts(recs.slice(0, 5)); 
               }
-          } else {
-              setAiResult("Non riesco a identificare il problema.");
-          }
-
-      } catch (error) {
-          setAiResult("Errore di connessione.");
-      } finally {
-          setAiAnalyzing(false);
-      }
+          } else { setAiResult("Non riesco a identificare il problema."); }
+      } catch (error) { setAiResult("Errore di connessione."); } finally { setAiAnalyzing(false); }
   };
 
-
-  const handleEnterShop = async () => {
-      setUserRole('CLIENTE');
-      const hasProfile = await AsyncStorage.getItem('HAS_PROFILE_DATA');
-      if (!hasProfile) setShowWelcomeModal(true);
-  };
-
+  const handleEnterShop = async () => { setUserRole('CLIENTE'); const hasProfile = await AsyncStorage.getItem('HAS_PROFILE_DATA'); if (!hasProfile) setShowWelcomeModal(true); };
+  
   const saveWelcomeData = async () => {
-      if(!welcomeData.citta) return Alert.alert("Manca la città", "Inserisci la tua zona per il meteo.");
+      if(!welcomeData.citta) return Alert.alert("Manca la città", "Inserisci la tua zona.");
       try {
-          const { error } = await supabase.from('profili_anonimi').upsert({
-              device_id: deviceId,
-              tipo_utente: welcomeData.tipo,
-              citta_base: welcomeData.citta,
-              mq_prato_default: parseFloat(welcomeData.mq) || 0,
-              ultimo_accesso: new Date()
-          });
-          if(error) console.log("Err Profile DB", error);
+          await supabase.from('profili_anonimi').upsert({ device_id: deviceId, tipo_utente: welcomeData.tipo, citta_base: welcomeData.citta, mq_prato_default: parseFloat(welcomeData.mq) || 0, ultimo_accesso: new Date() });
           await AsyncStorage.setItem('HAS_PROFILE_DATA', 'true'); 
-          if(welcomeData.mq) {
-              setLawnSize(welcomeData.mq);
-              AsyncStorage.setItem('LAWN_SIZE', welcomeData.mq);
-          }
-          fetchWeather(welcomeData.citta); // Aggiorna meteo subito
-          trackEvent('REGISTRAZIONE_PROFILO', `Tipo: ${welcomeData.tipo}, Città: ${welcomeData.citta}`);
+          if(welcomeData.mq) { setLawnSize(welcomeData.mq); AsyncStorage.setItem('LAWN_SIZE', welcomeData.mq); }
+          fetchWeather(welcomeData.citta);
+          trackEvent('REGISTRAZIONE_PROFILO', `Tipo: ${welcomeData.tipo}`);
           setShowWelcomeModal(false);
       } catch (e) { Alert.alert("Errore", "Riprova."); }
   };
@@ -345,41 +362,22 @@ export default function App() {
   const handleUpdateProfile = async () => {
       if(!welcomeData.citta) return Alert.alert("Manca la città", "Inserisci la tua zona.");
       try {
-          await supabase.from('profili_anonimi').upsert({
-              device_id: deviceId,
-              tipo_utente: welcomeData.tipo,
-              citta_base: welcomeData.citta,
-              mq_prato_default: parseFloat(welcomeData.mq) || 0,
-              ultimo_accesso: new Date()
-          });
-          if(welcomeData.mq) {
-              setLawnSize(welcomeData.mq);
-              AsyncStorage.setItem('LAWN_SIZE', welcomeData.mq);
-          }
-          fetchWeather(welcomeData.citta); // Aggiorna meteo
-          Alert.alert("Fatto", "Profilo e Meteo aggiornati!");
+          await supabase.from('profili_anonimi').upsert({ device_id: deviceId, tipo_utente: welcomeData.tipo, citta_base: welcomeData.citta, mq_prato_default: parseFloat(welcomeData.mq) || 0, ultimo_accesso: new Date() });
+          if(welcomeData.mq) { setLawnSize(welcomeData.mq); AsyncStorage.setItem('LAWN_SIZE', welcomeData.mq); }
+          fetchWeather(welcomeData.citta);
+          Alert.alert("Fatto", "Profilo aggiornato!");
           setShowSettingsModal(false);
-          trackEvent('AGGIORNAMENTO_PROFILO', `Nuovo Tipo: ${welcomeData.tipo}`);
       } catch (e) { Alert.alert("Errore", "Riprova."); }
   };
 
-  const trackEvent = async (action, detail, numericValue = 0) => {
-      if(!deviceId) return;
-      supabase.from('tracking_eventi').insert({
-          device_id: deviceId,
-          tipo_azione: action,
-          dettaglio: detail,
-          valore_numerico: numericValue
-      }).then(({error}) => { if(error) console.log("Track Error", error); });
-  };
-
+  const trackEvent = async (action, detail, numericValue = 0) => { if(!deviceId) return; supabase.from('tracking_eventi').insert({ device_id: deviceId, tipo_azione: action, dettaglio: detail, valore_numerico: numericValue }).then(); };
   const handleDismissAlert = () => { setSelectedAlert(null); setClientAlerts([]); }; 
   const handlePostponeAlert = () => { setSelectedAlert(null); }; 
 
   const getSearchScore = (item, term) => {
       if (!term) return { qty: 0, count: 0 };
       const t = term.toLowerCase();
-      const text = `${item.nome} ${item.descrizione||''} ${item.composizione||''} ${item.dose_radicale||''} ${item.dose_fogliare||''} ${item.periodo_uso||''}`.toLowerCase();
+      const text = `${item.nome} ${item.descrizione||''} ${item.composizione||''} ${item.categoria||''}`.toLowerCase();
       const count = text.split(t).length - 1;
       if (count === 0) return { qty: 0, count: 0 };
       const match = text.match(new RegExp(`${t}[^0-9]{0,15}?([0-9]+([.,][0-9]+)?)`));
@@ -485,20 +483,30 @@ export default function App() {
   const getDiscount = (p) => { const partner = activePartners.find(ap => (ap.azienda||'').toUpperCase() === (p.marca||'').toUpperCase()); if (!partner) return '0'; const c = (p.categoria||'').toUpperCase(); return (c.includes('SEMENTI')) ? partner.s_sementi : (c.includes('LIQUID')||c.includes('BIO')||c.includes('BAGNANT') ? partner.s_liquidi : partner.s_granulari); };
   const applyDisc = (price, discStr) => { if(!discStr || discStr==='0') return price; let final = price; discStr.split('+').forEach(d => { const val = parseFloat(d); if(!isNaN(val) && val > 0) final = final - (final * (val/100)); }); return final; };
 
+  // --- CALCOLO COSTI E DOSI AGGIORNATO ---
   const calcSpecs = (p, mq) => { 
       const size = parseFloat(mq) || 0; 
       const price = parseFloat(p.prezzo) || 0; 
       const finalPriceUnit = applyDisc(price, getDiscount(p)); 
+      
       const isLiquid = ['ML','L','LT'].includes((p.unita_misura||'').toUpperCase()); 
+      
       const qRadRaw = (parseFloat(p.dose_radicale||0) * size);
       const qFogRaw = (parseFloat(p.dose_fogliare||0) * size);
+      
       const qRadDisplay = isLiquid ? qRadRaw : (qRadRaw / 1000);
       const qFogDisplay = isLiquid ? qFogRaw : (qFogRaw / 1000);
+      
       const unitDisplay = isLiquid ? 'ml' : 'Kg';
-      const qRadNorm = qRadRaw / 1000; 
-      const qFogNorm = qFogRaw / 1000;
-      const cost = Math.max(qRadNorm, qFogNorm) * finalPriceUnit;
-      return { qRad: qRadDisplay, qFog: qFogDisplay, unit: unitDisplay, totalCost: cost }; 
+
+      // Calcolo COSTO in base alla dose totale e al prezzo unitario (Kg o L)
+      // Assumiamo che il prezzo nel DB sia per unità di vendita standard (spesso 1L o 1Kg o confezione base)
+      // Per una stima: (Quantità Totale / 1000 se solido o liquido in ml) * Prezzo Unitario
+      
+      const costRad = (qRadRaw / 1000) * finalPriceUnit; 
+      const costFog = (qFogRaw / 1000) * finalPriceUnit;
+
+      return { qRad: qRadDisplay, qFog: qFogDisplay, unit: unitDisplay, costRad, costFog }; 
   };
 
   const updateCartQuantity = (id, txt) => { setCartItems(cartItems.map(p => p.id === id ? {...p, quantity: txt} : p)); };
@@ -662,14 +670,15 @@ export default function App() {
              <TextInput style={styles.searchInput} placeholder="Cerca prodotto..." value={search} onChangeText={(t) => { setSearch(t); if(t.length > 3) trackEvent('RICERCA', t); }}/>
          </View>
          <View style={{marginTop:15}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{activePartners.length > 0 ? [...new Set(activePartners.map(p => p.azienda))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>)) : ['TUTTI', ...new Set(productsDB.map(i=>i.marca).filter(x=>x))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>))}{activePartners.length > 1 && (<TouchableOpacity onPress={()=>setSelectedBrand('TUTTI')} style={[styles.chip, selectedBrand==='TUTTI' && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand==='TUTTI' && {color:'#fff'}]}>TUTTI I MIEI LISTINI</Text></TouchableOpacity>)}</ScrollView></View>
-         <View style={{marginTop:10}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['TUTTI', ...new Set(productsDB.map(i=>i.categoria).filter(x=>x))].map(c => (<TouchableOpacity key={c} onPress={()=>setSelectedCategory(c?c.toUpperCase():'TUTTI')} style={[styles.chipSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {backgroundColor:THEME.accent, borderColor:THEME.accent}]}><Text style={[styles.chipTextSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {color:'#fff'}]}>{c}</Text></TouchableOpacity>))}</ScrollView></View>
+         <View style={{marginTop:10}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['TUTTI', ...new Set(productsDB.map(i=>i.categoria).filter(c => c && !isPharmacyCategory(c)))].map(c => (<TouchableOpacity key={c} onPress={()=>setSelectedCategory(c?c.toUpperCase():'TUTTI')} style={[styles.chipSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {backgroundColor:THEME.accent, borderColor:THEME.accent}]}><Text style={[styles.chipTextSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {color:'#fff'}]}>{c}</Text></TouchableOpacity>))}</ScrollView></View>
       </View>
       <FlatList 
          data={productsDB
              .filter(p => {
                  const allowedBrands = activePartners.map(ap => ap.azienda.toUpperCase());
-                 const sosCategories = ['FUNGICIDA', 'DISERBANTE', 'INSETTICIDA', 'FUNGICIDA BIO', 'DISERBANTE PFnPE', 'INSETTICIDA PFnPE'];
-                 if (sosCategories.includes(p.categoria.toUpperCase())) return false; 
+                 // ESCLUDI SEMPRE FARMACIA DALLA LISTA PRINCIPALE (A MENO CHE NON CERCATA ESPLICITAMENTE)
+                 if (isPharmacyCategory(p.categoria) && !search && selectedCategory !== 'SOS FARMACIA') return false;
+
                  if (allowedBrands.length > 0 && !allowedBrands.includes(p.marca.toUpperCase())) return false;
                  if (search && getSearchScore(p, search).count === 0) return false;
                  if (selectedBrand !== 'TUTTI' && p.marca.toUpperCase() !== selectedBrand.toUpperCase()) return false;
@@ -691,19 +700,28 @@ export default function App() {
              const inCart = cartItems.some(p=>p.id===item.id);
              const inMix = mixItems.some(p=>p.id===item.id);
              const hasAccess = activePartners.length > 0;
+             const cardColor = getCategoryColor(item.categoria);
+             const showBrand = shouldShowBrand(item.categoria);
+             
+             // CALCOLO PREZZO
+             const price = parseFloat(item.prezzo) || 0;
+             const discount = getDiscount(item);
+             const finalPrice = applyDisc(price, discount);
+
              return (
-               <View style={[styles.card, {borderColor: item.colore || '#eee', borderWidth: 2}, (inCart || inMix) && {backgroundColor:'#f9f9f9'}]}>
+               <View style={[styles.card, {borderColor: cardColor, borderWidth: 2}, (inCart || inMix) && {backgroundColor:'#f9f9f9'}]}>
                    <TouchableOpacity style={styles.cardLeft} onPress={()=>toggleFavorite(item.id)}><Ionicons name={isFav?"heart":"heart-outline"} size={26} color={isFav?THEME.danger:THEME.iconInactive}/></TouchableOpacity>
                    <TouchableOpacity style={styles.cardCenter} onPress={()=>{setSelectedProduct(item); trackEvent('VISUALIZZA_PRODOTTO', item.nome); }}>
-                       <HighlightText baseStyle={styles.cardBrand} text={item.marca} term={search} />
+                       {showBrand && <HighlightText baseStyle={styles.cardBrand} text={item.marca} term={search} />}
                        <HighlightText baseStyle={styles.cardTitle} text={item.nome} term={search} />
-                       <HighlightText baseStyle={styles.cardSub} text={item.categoria} term={search} />
+                       <HighlightText baseStyle={[styles.cardSub, {color: cardColor, fontWeight:'bold'}]} text={getCleanCategoryName(item.categoria)} term={search} />
                    </TouchableOpacity>
                    <View style={styles.cardRight}>
                        {hasAccess ? (
                            <>
-                               <TouchableOpacity onPress={() => toggleMix(item)} style={{marginBottom:15}}><View style={{backgroundColor:inMix?THEME.primary:'#fff', padding:8, borderRadius:8, borderWidth:1, borderColor:inMix?THEME.primary:THEME.secondary}}><Ionicons name={inMix?"flask":"flask-outline"} size={22} color={inMix?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
-                               <TouchableOpacity onPress={() => toggleCart(item)}><View style={{backgroundColor:inCart?THEME.accent:'#fff', padding:8, borderRadius:8, borderWidth:1, borderColor:inCart?THEME.accent:THEME.secondary}}><Ionicons name={inCart?"cart":"cart-outline"} size={22} color={inCart?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
+                               <Text style={{fontWeight:'bold', color:THEME.accent, marginBottom:5}}>€ {finalPrice.toFixed(2)}</Text>
+                               <TouchableOpacity onPress={() => toggleMix(item)} style={{marginBottom:10}}><View style={{backgroundColor:inMix?THEME.primary:'#fff', padding:6, borderRadius:8, borderWidth:1, borderColor:inMix?THEME.primary:THEME.secondary}}><Ionicons name={inMix?"flask":"flask-outline"} size={20} color={inMix?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
+                               <TouchableOpacity onPress={() => toggleCart(item)}><View style={{backgroundColor:inCart?THEME.accent:'#fff', padding:6, borderRadius:8, borderWidth:1, borderColor:inCart?THEME.accent:THEME.secondary}}><Ionicons name={inCart?"cart":"cart-outline"} size={20} color={inCart?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
                            </>
                        ) : (
                            <View style={{alignItems:'center', justifyContent:'center'}}>
@@ -749,6 +767,10 @@ export default function App() {
                       <Ionicons name="location" size={20} color="#666" style={{marginRight:10}}/>
                       <TextInput style={{flex:1}} placeholder="Città (es. Milano)" value={aiContextData.city} onChangeText={t=>setAiContextData({...aiContextData, city:t})}/>
                   </View>
+                   <View style={styles.inputContainer}>
+                      <Ionicons name="leaf" size={20} color="#666" style={{marginRight:10}}/>
+                      <TextInput style={{flex:1}} placeholder="Tipo di Pianta (Opzionale)" value={aiContextData.plantType} onChangeText={t=>setAiContextData({...aiContextData, plantType:t})}/>
+                  </View>
 
                   <TouchableOpacity style={[styles.btnBig, {marginTop:10}]} onPress={startAnalysis}>
                       <Text style={styles.btnText}>ANALIZZA ORA</Text>
@@ -760,39 +782,38 @@ export default function App() {
           </View>
       </Modal>
 
-      {/* --- MODAL AI RESULT (AGGIORNATA CON PRODOTTI) --- */}
+      {/* --- MODAL AI RESULT (COMPACT & SCROLLABLE) --- */}
       <Modal visible={showAIModal} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
-              <View style={styles.modalCard}>
-                  <View style={{alignItems:'center', marginBottom:15}}>
-                      <Ionicons name="eye" size={40} color={THEME.ai} />
-                      <Text style={{fontSize:20, fontWeight:'bold', color:THEME.ai, marginTop:10}}>DIAGNOSI AI</Text>
+              <View style={[styles.modalCard, {padding:20, width:'90%'}]}>
+                  <View style={{alignItems:'center', marginBottom:10}}>
+                      <Ionicons name="eye" size={32} color={THEME.ai} />
+                      <Text style={{fontSize:18, fontWeight:'bold', color:THEME.ai, marginTop:5}}>DIAGNOSI AI</Text>
                   </View>
                   
-                  {aiImage && <Image source={{uri: aiImage.uri}} style={{width:200, height:150, borderRadius:10, marginBottom:15}} />}
+                  {aiImage && <Image source={{uri: aiImage.uri}} style={{width:120, height:80, borderRadius:10, marginBottom:10}} />}
 
                   {aiAnalyzing ? (
                       <View style={{alignItems:'center', padding:20}}>
                           <ActivityIndicator size="large" color={THEME.ai} />
-                          <Text style={{marginTop:15, color:'#666'}}>Sto analizzando il prato...</Text>
+                          <Text style={{marginTop:15, color:'#666'}}>Sto analizzando...</Text>
                       </View>
                   ) : (
                       <>
-                      <ScrollView style={{maxHeight: 150, width:'100%', marginBottom:15}}>
-                          <Text style={{fontSize:16, lineHeight:24, color:'#333', textAlign:'justify'}}>{aiResult}</Text>
+                      <ScrollView style={{maxHeight: 120, width:'100%', marginBottom:10}}>
+                          <Text style={{fontSize:14, lineHeight:20, color:'#333', textAlign:'justify'}}>{aiResult}</Text>
                       </ScrollView>
 
                       {/* SEZIONE PRODOTTI CONSIGLIATI */}
                       {aiRecommendedProducts.length > 0 && (
-                          <View style={{width:'100%', borderTopWidth:1, borderColor:'#eee', paddingTop:10, marginBottom:15}}>
-                              <Text style={{fontWeight:'bold', color:THEME.accent, marginBottom:10}}>SOLUZIONI CONSIGLIATE:</Text>
+                          <View style={{width:'100%', borderTopWidth:1, borderColor:'#eee', paddingTop:10, marginBottom:10}}>
+                              <Text style={{fontWeight:'bold', color:THEME.accent, marginBottom:5, fontSize:12}}>SOLUZIONI CONSIGLIATE:</Text>
                               {aiRecommendedProducts.map((p, i) => (
-                                  <TouchableOpacity key={i} onPress={()=>{setSelectedProduct(p);}} style={{flexDirection:'row', alignItems:'center', padding:10, backgroundColor:'#f9f9f9', marginBottom:5, borderRadius:8, borderLeftWidth:4, borderColor:THEME.accent}}>
+                                  <TouchableOpacity key={i} onPress={()=>{setSelectedProduct(p);}} style={{flexDirection:'row', alignItems:'center', padding:8, backgroundColor:'#f9f9f9', marginBottom:5, borderRadius:8, borderLeftWidth:4, borderColor:THEME.accent}}>
                                       <View style={{flex:1}}>
-                                          <Text style={{fontWeight:'bold', fontSize:12}}>{p.nome}</Text>
-                                          <Text style={{fontSize:10, color:'#666'}}>{p.marca}</Text>
+                                          <Text style={{fontWeight:'bold', fontSize:11}}>{p.nome}</Text>
                                       </View>
-                                      <Ionicons name="arrow-forward-circle" size={24} color={THEME.accent}/>
+                                      <Ionicons name="arrow-forward-circle" size={20} color={THEME.accent}/>
                                   </TouchableOpacity>
                               ))}
                           </View>
@@ -847,8 +868,7 @@ export default function App() {
                     <TouchableOpacity onPress={()=>{setSelectedProduct(item); trackEvent('VISUALIZZA_FARMACO', item.nome); }} style={{flexDirection:'row', backgroundColor:'#fff', marginBottom:15, borderRadius:12, shadowColor:'#000', shadowOpacity:0.1, elevation:3, borderLeftWidth:6, borderColor:item.colore}}>
                         <View style={{padding:20, flex:1}}>
                             <View style={{flexDirection:'row', justifyContent:'space-between'}}>
-                                <Text style={{fontSize:10, fontWeight:'bold', color:item.colore}}>{item.categoria}</Text>
-                                <Text style={{fontSize:10, color:'#999'}}>{item.marca}</Text>
+                                <Text style={{fontSize:10, fontWeight:'bold', color:item.colore}}>{getCleanCategoryName(item.categoria)}</Text>
                             </View>
                             <HighlightText baseStyle={{fontSize:18, fontWeight:'bold', color:'#333', marginVertical:5}} text={item.nome} term={sosSearch} />
                             <HighlightText baseStyle={{fontSize:12, color:'#666'}} text={item.descrizione} term={sosSearch} />
@@ -936,14 +956,21 @@ export default function App() {
             </View>
       </Modal>
 
-      {/* --- DETAIL MODAL (CALCOLATORE) --- */}
+      {/* --- DETAIL MODAL (CALCOLATORE POTENZIATO) --- */}
       <Modal visible={selectedProduct!==null} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setSelectedProduct(null)}>
         {selectedProduct && (
             <View style={{flex:1, backgroundColor:'#fff'}}>
                 <View style={{backgroundColor: selectedProduct.colore || '#C8E6C9', padding:20, paddingTop:Platform.OS==='android'?40:20, paddingBottom:30}}>
-                     <TouchableOpacity onPress={()=>setSelectedProduct(null)} style={{alignSelf:'flex-start', marginBottom:15}}>
-                         <Ionicons name="close" size={30} color={selectedProduct.colore ? '#fff' : THEME.textDark}/>
-                     </TouchableOpacity>
+                     <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start'}}>
+                         <TouchableOpacity onPress={()=>setSelectedProduct(null)} style={{marginBottom:15}}>
+                             <Ionicons name="close" size={30} color={selectedProduct.colore ? '#fff' : THEME.textDark}/>
+                         </TouchableOpacity>
+                         {/* PREZZO SCONTATO VISIBILE CON UNITÀ */}
+                         <Text style={{fontSize:24, fontWeight:'900', color:'#fff'}}>
+                             € {applyDisc(parseFloat(selectedProduct.prezzo)||0, getDiscount(selectedProduct)).toFixed(2)} <Text style={{fontSize:16}}> / {getDisplayUnit(selectedProduct.unita_misura)}</Text>
+                         </Text>
+                     </View>
+                     
                      <Text style={{fontSize:32, fontWeight:'bold', color:selectedProduct.colore ? '#fff' : THEME.textDark}}>{selectedProduct.nome}</Text>
                      <Text style={{fontSize:14, fontWeight:'bold', color:selectedProduct.colore ? '#fff' : THEME.info, marginTop:5, textTransform:'uppercase'}}>
                          {selectedProduct.marca} • {selectedProduct.categoria}
@@ -951,19 +978,36 @@ export default function App() {
                 </View>
 
                 <ScrollView contentContainerStyle={{padding:20}}>
-                     <View style={{flexDirection:'row', gap:15, marginBottom:20}}>
-                         <View style={styles.newDoseCard}><Ionicons name="arrow-down-circle" size={20} color="#8D6E63"/><Text style={{fontSize:10, fontWeight:'bold', color:'#666', marginTop:5}}>DOSE RADICALE</Text><Text style={{fontSize:18, fontWeight:'bold', color:THEME.textDark}}>{selectedProduct.dose_radicale > 0 ? `${selectedProduct.dose_radicale} g/m²` : '-'}</Text></View>
-                         <View style={styles.newDoseCard}><Ionicons name="leaf" size={20} color={THEME.textDark}/><Text style={{fontSize:10, fontWeight:'bold', color:'#666', marginTop:5}}>DOSE FOGLIARE</Text><Text style={{fontSize:18, fontWeight:'bold', color:THEME.textDark}}>{selectedProduct.dose_fogliare > 0 ? `${selectedProduct.dose_fogliare} ml/m²` : '-'}</Text></View>
-                     </View>
-                     <View style={styles.newPeriodCard}><View style={{marginRight:15}}><Ionicons name="calendar" size={30} color="#5E35B1"/></View><View style={{flex:1}}><Text style={{fontSize:10, color:'#5E35B1', fontWeight:'bold', marginBottom:2}}>PERIODO INDICATO</Text><Text style={{color:'#333', fontSize:14, fontWeight:'500'}}>{selectedProduct.periodo_uso || "Tutto l'anno"}</Text></View></View>
-                     <Text style={{fontSize:12, color:'#999', marginTop:15, marginBottom:5}}>DESCRIZIONE TECNICA</Text><Text style={{fontSize:16, color:'#333', lineHeight:24}}>{selectedProduct.descrizione}</Text>
-                     <Text style={{fontSize:12, color:'#999', marginTop:20, marginBottom:5}}>COMPOSIZIONE CHIMICA</Text><View style={{backgroundColor:'#F5F5F5', padding:15, borderRadius:10, borderWidth:1, borderColor:'#eee'}}><Text style={{color:'#444', fontStyle:'italic'}}>{selectedProduct.composizione || "Non specificata"}</Text></View>
-
                      <View style={styles.newCalcBox}>
                          <Text style={{textAlign:'center', fontWeight:'bold', color:THEME.textDark, fontSize:12, marginBottom:15}}>MQ DA TRATTARE</Text>
                          <TextInput style={styles.newCalcInput} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize} onBlur={() => trackEvent('CALCOLO_DOSI', selectedProduct.nome, parseFloat(lawnSize))} />
-                         {lawnSize ? (<>{(() => {const specs = calcSpecs(selectedProduct, lawnSize); return (<View>{specs.qRad > 0 && (<View style={{alignItems:'center', marginBottom:10}}><Text style={{fontSize:12, color:'#8D6E63', fontWeight:'bold'}}>RADICALE</Text><Text style={[styles.newCalcResult, {color:'#8D6E63'}]}>{specs.qRad.toFixed(2)} {specs.unit}</Text></View>)}{specs.qFog > 0 && (<View style={{alignItems:'center'}}><Text style={{fontSize:12, color:THEME.textDark, fontWeight:'bold'}}>FOGLIARE</Text><Text style={styles.newCalcResult}>{specs.qFog.toFixed(2)} {specs.unit}</Text></View>)}</View>)})()}<Text style={{textAlign:'center', fontSize:10, color:'#777', marginTop:15}}>* Calcolo universale in Kg (Solidi) o ml (Liquidi)</Text></>) : (<Text style={{textAlign:'center', fontSize:32, color:'#ccc', marginVertical:20}}>- {selectedProduct.unita_misura === 'L' || selectedProduct.unita_misura === 'ML' ? 'ml' : 'Kg'}</Text>)}
+                         
+                         {/* CALCOLO LIVE CON COSTI */}
+                         {lawnSize ? (<>{(() => {
+                             const specs = calcSpecs(selectedProduct, lawnSize); 
+                             return (
+                                <View>
+                                    {specs.qRad > 0 && (
+                                        <View style={{alignItems:'center', marginBottom:15}}>
+                                            <Text style={{fontSize:12, color:'#8D6E63', fontWeight:'bold'}}>RADICALE</Text>
+                                            <Text style={[styles.newCalcResult, {color:'#8D6E63'}]}>{specs.qRad.toFixed(2)} {specs.unit}</Text>
+                                            <Text style={{fontSize:14, color:'#666', fontWeight:'bold'}}>(€ {specs.costRad.toFixed(2)})</Text>
+                                        </View>
+                                    )}
+                                    {specs.qFog > 0 && (
+                                        <View style={{alignItems:'center'}}>
+                                            <Text style={{fontSize:12, color:THEME.textDark, fontWeight:'bold'}}>FOGLIARE</Text>
+                                            <Text style={styles.newCalcResult}>{specs.qFog.toFixed(2)} {specs.unit}</Text>
+                                            <Text style={{fontSize:14, color:'#666', fontWeight:'bold'}}>(€ {specs.costFog.toFixed(2)})</Text>
+                                        </View>
+                                    )}
+                                </View>
+                            )
+                        })()}<Text style={{textAlign:'center', fontSize:10, color:'#777', marginTop:15}}>* Costo stimato in base alla dose</Text></>) : (<Text style={{textAlign:'center', fontSize:32, color:'#ccc', marginVertical:20}}>- {selectedProduct.unita_misura === 'L' || selectedProduct.unita_misura === 'ML' ? 'ml' : 'Kg'}</Text>)}
                      </View>
+
+                     <Text style={{fontSize:12, color:'#999', marginTop:20, marginBottom:5}}>DESCRIZIONE TECNICA</Text><Text style={{fontSize:16, color:'#333', lineHeight:24}}>{selectedProduct.descrizione}</Text>
+                     <Text style={{fontSize:12, color:'#999', marginTop:20, marginBottom:5}}>COMPOSIZIONE CHIMICA</Text><View style={{backgroundColor:'#F5F5F5', padding:15, borderRadius:10, borderWidth:1, borderColor:'#eee'}}><Text style={{color:'#444', fontStyle:'italic'}}>{selectedProduct.composizione || "Non specificata"}</Text></View>
                 </ScrollView>
             </View>
         )}
@@ -980,13 +1024,13 @@ export default function App() {
 const styles = StyleSheet.create({
   center: { flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'#fff', padding:20 },
   header: { backgroundColor:'#fff', padding:20, paddingTop:Platform.OS==='android'?40:20, borderBottomWidth:1, borderColor:'#eee' },
-  card: { flexDirection:'row', backgroundColor:'#fff', borderRadius:16, marginBottom:12, padding:15, alignItems:'center', shadowColor:'#000', shadowOpacity:0.05, shadowRadius:8, elevation:3 },
+  card: { flexDirection:'row', backgroundColor:'#fff', borderRadius:16, marginBottom:10, padding:10, alignItems:'center', shadowColor:'#000', shadowOpacity:0.05, shadowRadius:8, elevation:3 }, // CARD COMPATTA
   cardLeft: { paddingRight:15, borderRightWidth:1, borderColor:'#f5f5f5', justifyContent:'center' },
-  cardCenter: { flex:1, paddingHorizontal:15 },
-  cardRight: { paddingLeft:10, alignItems:'center', justifyContent:'center' },
+  cardCenter: { flex:1, paddingHorizontal:10 },
+  cardRight: { paddingLeft:10, alignItems:'flex-end', justifyContent:'center' }, // ALLINEATO A DESTRA
   cardBrand: { fontSize:10, fontWeight:'bold', color:'#999', textTransform:'uppercase' },
-  cardTitle: { fontSize:16, fontWeight:'bold', color:THEME.textDark, marginVertical:2 },
-  cardSub: { fontSize:11, color:'#555' },
+  cardTitle: { fontSize:14, fontWeight:'bold', color:THEME.textDark, marginVertical:2 }, // FONT RIDOTTO
+  cardSub: { fontSize:10, color:'#555' },
   searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:12, paddingHorizontal:15, height:48 },
   searchInput: { flex:1, marginLeft:10, fontSize:16 },
   mqInputSmall: { fontSize:24, fontWeight:'bold', textAlign:'center', borderBottomWidth:2, borderColor:THEME.accent, width:'60%', alignSelf:'center', padding:5 },
@@ -1002,7 +1046,7 @@ const styles = StyleSheet.create({
   fab: { paddingHorizontal:20, paddingVertical:12, borderRadius:30, flexDirection:'row', alignItems:'center', elevation:8, shadowColor:'#000', shadowOpacity:0.3, shadowOffset:{width:0,height:4} },
   fabText: { color:'#fff', fontWeight:'bold', marginLeft:5, fontSize:12 },
   modalOverlay: { flex:1, backgroundColor:'rgba(0,0,0,0.5)', justifyContent:'center', padding:30 },
-  modalCard: { backgroundColor:'#fff', padding:30, borderRadius:20, alignItems:'center', width:'90%' },
+  modalCard: { backgroundColor:'#fff', padding:20, borderRadius:20, alignItems:'center', width:'90%' }, // MODAL PIÙ STRETTO
   modalTitle: { fontSize:24, fontWeight:'bold', color:THEME.textDark, marginBottom:10 },
   cartItem: { flexDirection:'row', alignItems:'center', paddingVertical:15, borderBottomWidth:1, borderColor:'#f0f0f0' },
   inputContainer: { flexDirection:'row', alignItems:'center', backgroundColor:'#F5F7FA', borderWidth:1, borderColor:'#E0E0E0', borderRadius:12, paddingHorizontal:15, paddingVertical:12, width:'100%', marginBottom:15 },
