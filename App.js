@@ -21,6 +21,12 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
 });
 
+// --- PROMPT DI BACKUP (Se non va internet/db) ---
+const BACKUP_SYSTEM_PROMPT = `Sei un Agronomo Esperto.
+1. Se vedi erbacce/trifoglio: Diagnostica INFESTANTI -> CONSIGLIO CATEGORIA: DISERBANTE.
+2. Se vedi macchie: Diagnostica FUNGHI -> CONSIGLIO CATEGORIA: FUNGICIDA.
+3. Se vedi giallo: Diagnostica CARENZA -> CONSIGLIO CATEGORIA: CONCIME.`;
+
 // --- TEMA GRAFICO ---
 const THEME = {
   headerBg: '#FFFFFF', bg: '#F5F7FA', card: '#FFFFFF',
@@ -60,10 +66,10 @@ const BrandLogo = ({scale = 1}) => (
 const getCategoryColor = (categoria) => {
     if (!categoria) return '#90A4AE';
     const c = categoria.toUpperCase();
-    if (c.includes('FUNGICIDA') || c.includes('DISERBANTE') || c.includes('INSETTICIDA')) return '#D32F2F'; // Rosso
-    if (c.includes('CONCIME') || c.includes('FERTILIZZANTE')) return '#2E7D32'; // Verde
-    if (c.includes('BIO') || c.includes('STIMOLANTE')) return '#FF8F00'; // Arancio
-    if (c.includes('SEMENTI') || c.includes('PRATO')) return '#1565C0'; // Blu
+    if (c.includes('FUNGICIDA') || c.includes('DISERBANTE') || c.includes('INSETTICIDA')) return '#D32F2F'; 
+    if (c.includes('CONCIME') || c.includes('FERTILIZZANTE')) return '#2E7D32'; 
+    if (c.includes('BIO') || c.includes('STIMOLANTE')) return '#FF8F00'; 
+    if (c.includes('SEMENTI') || c.includes('PRATO')) return '#1565C0'; 
     return '#607D8B';
 };
 
@@ -99,6 +105,29 @@ const getDisplayUnit = (unit) => {
     return unit;
 };
 
+// --- LOGICA METEO AGRONOMICO ---
+const getAgronomicAdvice = (weather) => {
+    if (!weather) return { status: '...', advice: '...', color: '#999' };
+
+    const temp = weather.main.temp;
+    const main = weather.weather[0].main; 
+    const id = weather.weather[0].id; 
+
+    if (main === 'Snow' || temp <= 5) {
+        return { status: '❄️ RIPOSO INVERNALE', advice: 'Prato dormiente. Non tagliare.', color: '#90A4AE' };
+    }
+    if (main === 'Rain' || main === 'Drizzle' || main === 'Thunderstorm') {
+        return { status: '🌧️ PIOGGIA', advice: 'Spegni irrigazione. No trattamenti.', color: '#42A5F5' };
+    }
+    if (temp > 5 && temp < 12) {
+        return { status: '💤 BASSA CRESCITA', advice: 'Taglio alto. Assorbimento lento.', color: '#7986CB' };
+    }
+    if (temp >= 28) {
+        return { status: '🔥 STRESS TERMICO', advice: 'Irriga mattina. Alza taglio.', color: '#D32F2F' };
+    }
+    return { status: '✅ TEMPO IDEALE', advice: 'Ottimo per taglio e concime.', color: '#2E7D32' };
+};
+
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
   const [userRole, setUserRole] = useState(null); 
@@ -111,7 +140,7 @@ export default function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [welcomeData, setWelcomeData] = useState({ tipo: 'HOBBISTA', citta: '', mq: '' });
   const [weatherData, setWeatherData] = useState(null); 
-  
+   
   // AI STATES
   const [showContextModal, setShowContextModal] = useState(false); 
   const [showAIModal, setShowAIModal] = useState(false);
@@ -120,6 +149,7 @@ export default function App() {
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState(null);
   const [aiRecommendedProducts, setAiRecommendedProducts] = useState([]); 
+  const [activeSystemPrompt, setActiveSystemPrompt] = useState(BACKUP_SYSTEM_PROMPT); // <--- STATO PROMPT
 
   // AUTH
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -141,7 +171,8 @@ export default function App() {
   const [showCartModal, setShowCartModal] = useState(false);
   const [mixItems, setMixItems] = useState([]); 
   const [showMixListModal, setShowMixListModal] = useState(false);
-  
+  const [customerName, setCustomerName] = useState(''); 
+   
   // EXTRA
   const [showSOSModal, setShowSOSModal] = useState(false);
   const [sosSearch, setSosSearch] = useState(''); 
@@ -221,7 +252,7 @@ export default function App() {
       } catch(e) { console.log("Errore Meteo", e); }
   };
 
-  // --- FUNZIONI AI ---
+  // --- FUNZIONI AI AGGIORNATA (FETCH PROMPT DA DB) ---
   const handlePhotoAction = () => {
       Alert.alert("Nuova Diagnosi", "Scegli la fonte dell'immagine:", [
           { text: "Annulla", style: "cancel" },
@@ -260,7 +291,7 @@ export default function App() {
 
       let weatherContext = "Dato Meteo non disponibile.";
       const today = new Date().toISOString().split('T')[0];
-      
+       
       if (aiContextData.date === today && aiContextData.city) {
           try {
               const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${aiContextData.city}&appid=${WEATHER_API_KEY}&units=metric&lang=it`);
@@ -285,18 +316,7 @@ export default function App() {
                   messages: [
                       {
                           role: "system",
-                          content: `Sei un Agronomo Esperto e Analista Botanico.
-                          PROTOCOLLO DI ANALISI RIGOROSO:
-                          1. **IDENTIFICAZIONE**: Se l'utente non l'ha specificato, identifica la pianta.
-                          2. **DIAGNOSI SINTOMATICA PRECISA**:
-                             - **CARENZE**: Non dire "carenza generica". 
-                               -> Giallo internervale? Carenza FERRO/MANGANESE.
-                               -> Giallo vecchio? Carenza AZOTO.
-                               -> Bordi bruciati? Carenza POTASSIO.
-                             - **FUNGHI**: Cerca micelio, pustole, macchie concentriche.
-                             - **PARASSITI**: Cerca melata, puntini, deformazioni.
-                          3. **SICUREZZA**: Esprimi la diagnosi con una % di probabilità alta se i segni sono evidenti.
-                          4. **AZIONE**: Concludi SEMPRE con: "CONSIGLIO CATEGORIA: [TIPO]" scegliendo SOLO tra: FUNGICIDA, INSETTICIDA, DISERBANTE, CONCIME.`
+                          content: activeSystemPrompt // <--- USA IL PROMPT DAL DB (o BACKUP)
                       },
                       {
                           role: "user",
@@ -320,14 +340,14 @@ export default function App() {
               let keyword = '';
               const dUpper = diagnosis.toUpperCase();
               
-              if (dUpper.includes('FUNGICIDA') || dUpper.includes('FUNGHI') || dUpper.includes('OIDIO') || dUpper.includes('TICCHIOLATURA')) keyword = 'FUNGICIDA';
+              if (dUpper.includes('DISERBANTE') || dUpper.includes('INFESTANTI') || dUpper.includes('ERBACCE') || dUpper.includes('TRIFOGLIO') || dUpper.includes('MALERBE')) keyword = 'DISERBANTE';
+              else if (dUpper.includes('FUNGICIDA') || dUpper.includes('FUNGHI') || dUpper.includes('OIDIO') || dUpper.includes('TICCHIOLATURA')) keyword = 'FUNGICIDA';
               else if (dUpper.includes('INSETTICIDA') || dUpper.includes('AFIDI') || dUpper.includes('COCCINIGLIA') || dUpper.includes('RAGNETTO')) keyword = 'INSETTICIDA';
-              else if (dUpper.includes('DISERBANTE') || dUpper.includes('INFESTANTI')) keyword = 'DISERBANTE';
               else if (dUpper.includes('CONCIME') || dUpper.includes('CARENZA') || dUpper.includes('FERRO') || dUpper.includes('CLOROSI') || dUpper.includes('NUTR')) keyword = 'CONCIME';
 
               if (keyword) {
                   let recs = productsDB.filter(p => p.categoria && p.categoria.toUpperCase().includes(keyword));
-                  
+                   
                   if (activePartners.length > 0) {
                       const allowedBrands = activePartners.map(ap => ap.azienda.toUpperCase());
                       recs = recs.filter(p => {
@@ -346,7 +366,7 @@ export default function App() {
   };
 
   const handleEnterShop = async () => { setUserRole('CLIENTE'); const hasProfile = await AsyncStorage.getItem('HAS_PROFILE_DATA'); if (!hasProfile) setShowWelcomeModal(true); };
-  
+   
   const saveWelcomeData = async () => {
       if(!welcomeData.citta) return Alert.alert("Manca la città", "Inserisci la tua zona.");
       try {
@@ -386,6 +406,7 @@ export default function App() {
   };
 
   const loadCommonData = async () => {
+      // 1. CARICA PRODOTTI
       const { data } = await supabase.from('Prodotti').select('*').order('marca').order('nome');
       if(data) {
           setProductsDB(data);
@@ -394,6 +415,13 @@ export default function App() {
           setAvailableBrands(brands);
           if(brands.length > 0) setRegCompany(brands[0]);
       }
+      
+      // 2. CARICA CONFIGURAZIONI (PROMPT AI)
+      const { data: configData } = await supabase.from('configurazioni').select('valore').eq('chiave', 'system_prompt_agronomo').single();
+      if(configData) {
+          setActiveSystemPrompt(configData.valore);
+      }
+
       const savedSize = await AsyncStorage.getItem('LAWN_SIZE');
       if(savedSize) setLawnSize(savedSize);
   };
@@ -500,9 +528,6 @@ export default function App() {
       const unitDisplay = isLiquid ? 'ml' : 'Kg';
 
       // Calcolo COSTO in base alla dose totale e al prezzo unitario (Kg o L)
-      // Assumiamo che il prezzo nel DB sia per unità di vendita standard (spesso 1L o 1Kg o confezione base)
-      // Per una stima: (Quantità Totale / 1000 se solido o liquido in ml) * Prezzo Unitario
-      
       const costRad = (qRadRaw / 1000) * finalPriceUnit; 
       const costFog = (qFogRaw / 1000) * finalPriceUnit;
 
@@ -527,11 +552,25 @@ export default function App() {
           const price = applyDisc(parseFloat(p.prezzo)||0, getDiscount(p)); 
           const cost = q * price; 
           total += cost; 
-          const isLiquid = ['ML','L','LT'].includes((p.unita_misura||'').toUpperCase());
-          const displayUnit = isLiquid ? 'L' : 'Kg';
-          return `<tr><td style="padding:10px;border-bottom:1px solid #ddd"><b>${p.nome}</b><br/><span style="font-size:10px;color:#666">${p.marca}</span></td><td style="padding:10px;border-bottom:1px solid #ddd;text-align:center;">${p.quantity || '0'} <span style="font-size:10px">${displayUnit}</span></td><td style="padding:10px;border-bottom:1px solid #ddd;text-align:right;">€ ${cost.toFixed(2)}</td></tr>`; 
+          const displayUnit = getDisplayUnit(p.unita_misura); // FIX: Usa unità pulita (L/Kg)
+          return `<tr>
+          <td style="padding:5px;border-bottom:1px solid #ddd"><b>${p.nome}</b><br/><span style="font-size:10px;color:#666">${p.marca}</span></td>
+          <td style="padding:5px;border-bottom:1px solid #ddd;text-align:center;">${p.quantity || '0'} <span style="font-size:10px">${displayUnit}</span></td>
+          <td style="padding:5px;border-bottom:1px solid #ddd;text-align:right;">€ ${cost.toFixed(2)}</td>
+          </tr>`; 
       }).join(''); 
-      const html = `<html><body style="font-family:Helvetica;padding:40px;"><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #00C853;padding-bottom:20px;"><div><h1 style="color:#1B5E20;margin:0;">Preventivo</h1><p style="margin:0;color:#666;font-size:12px;">AgriManager powered by Sinelica</p></div><div style="text-align:right;"><p>Data: ${new Date().toLocaleDateString()}</p><p>Listini attivi: <b>${activePartners.length}</b></p></div></div><table style="width:100%;border-collapse:collapse;margin-top:30px;"><tr style="background:#f5f5f5;color:#333"><th style="text-align:left;padding:10px">PRODOTTO</th><th style="text-align:center;">QUANTITÀ</th><th style="text-align:right;">PREZZO</th></tr>${rows}</table><div style="margin-top:30px;text-align:right;"><p style="font-size:14px;color:#666;">TOTALE PREVENTIVO</p><h2 style="color:#00C853;margin:0;">€ ${total.toFixed(2)}</h2></div></body></html>`; 
+      
+      const html = `<html><body style="font-family:Helvetica;padding:40px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #00C853;padding-bottom:10px;">
+        <div><h1 style="color:#1B5E20;margin:0;font-size:24px;">Preventivo</h1><p style="margin:0;color:#666;font-size:12px;">AgriManager powered by Sinelica</p></div>
+        <div style="text-align:right;"><p>Data: ${new Date().toLocaleDateString()}</p><h3 style="margin:0;">${customerName}</h3><p style="margin:0;font-size:10px;color:#666;">Listini attivi: ${activePartners.length}</p></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-top:20px;">
+        <tr style="background:#f5f5f5;color:#333"><th style="text-align:left;padding:5px">PRODOTTO</th><th style="text-align:center;">Q.TÀ</th><th style="text-align:right;">PREZZO</th></tr>${rows}
+      </table>
+      <div style="margin-top:20px;text-align:right;"><p style="font-size:14px;color:#666;">TOTALE PREVENTIVO</p><h2 style="color:#00C853;margin:0;">€ ${total.toFixed(2)}</h2></div>
+      </body></html>`; 
+      
       try { const { uri } = await Print.printToFileAsync({ html }); await Sharing.shareAsync(uri); trackEvent('STAMPA_PDF', `Articoli: ${cartItems.length}, Tot: ${total}`); } catch(e){} 
   };
 
@@ -621,56 +660,65 @@ export default function App() {
       <Modal visible={selectedAlert !== null} animationType="fade" transparent><View style={styles.modalOverlay}><View style={styles.modalCard}><View style={{alignItems:'center', marginBottom:15}}><Ionicons name="megaphone" size={40} color={THEME.danger} /><Text style={{fontSize:18, fontWeight:'900', color:THEME.danger, marginTop:10}}>AVVISO TECNICO</Text><Text style={{fontSize:12, color:'#666'}}>{selectedAlert?.company} - {new Date(selectedAlert?.created_at).toLocaleDateString()}</Text></View><ScrollView style={{maxHeight: 300, width:'100%', marginBottom:20}}><Text style={{fontSize:16, lineHeight:24, color:'#333', textAlign:'justify'}}>{selectedAlert?.message}</Text>{selectedAlert?.product_name && (<View style={{marginTop:20, backgroundColor:'#FBE9E7', padding:10, borderRadius:8}}><Text style={{fontWeight:'bold', color:THEME.danger, fontSize:12}}>PRODOTTI CONSIGLIATI:</Text><Text style={{color:THEME.textDark, fontWeight:'bold'}}>{selectedAlert.product_name}</Text></View>)}</ScrollView><View style={{width:'100%', gap:10}}><TouchableOpacity style={[styles.btnBig, {backgroundColor:THEME.primary}]} onPress={handleDismissAlert}><Text style={styles.btnText}>HO CAPITO (ARCHIVIA)</Text></TouchableOpacity><TouchableOpacity style={[styles.btnOutline, {borderColor:'#999'}]} onPress={handlePostponeAlert}><Text style={{color:'#666', fontWeight:'bold'}}>RICORDAMELO DOPO</Text></TouchableOpacity></View></View></View></Modal>
 
       <View style={styles.header}>
-         <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:15}}>
-             <TouchableOpacity onPress={()=>setUserRole(null)}><Ionicons name="arrow-back" size={26} color={THEME.textDark}/></TouchableOpacity>
+         <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
+             <TouchableOpacity onPress={()=>setUserRole(null)}><Ionicons name="arrow-back" size={24} color={THEME.textDark}/></TouchableOpacity>
              <BrandLogo/>
              <View style={{flexDirection:'row', alignItems:'center', gap:15}}>
-                 {/* SETTINGS BUTTON */}
                  <TouchableOpacity onPress={()=>setShowSettingsModal(true)}>
-                     <Ionicons name="settings-outline" size={24} color={THEME.textDark}/>
+                     <Ionicons name="settings-outline" size={22} color={THEME.textDark}/>
                  </TouchableOpacity>
                  <TouchableOpacity onPress={()=>setShowFavModal(true)} style={{position:'relative'}}>
-                     <Ionicons name="heart" size={28} color={THEME.danger}/>
+                     <Ionicons name="heart" size={26} color={THEME.danger}/>
                      {favorites.length > 0 && <View style={{position:'absolute', top:-2, right:-2, backgroundColor:THEME.accent, borderRadius:10, width:14, height:14, alignItems:'center', justifyContent:'center'}}><Text style={{color:'#fff', fontSize:9, fontWeight:'bold'}}>{favorites.length}</Text></View>}
                  </TouchableOpacity>
              </View>
          </View>
          
-         {/* --- WIDGET METEO --- */}
-         {weatherData && (
-             <View style={styles.weatherCard}>
+         {/* --- METEO COMPATTO --- */}
+         <View style={styles.weatherCard}>
+             {weatherData ? (
                  <View style={{flexDirection:'row', alignItems:'center', justifyContent:'space-between'}}>
                      <View style={{flexDirection:'row', alignItems:'center'}}>
-                         {weatherData.weather[0].main === 'Rain' ? <Ionicons name="rainy" size={32} color="#4FC3F7"/> :
-                          weatherData.weather[0].main === 'Clouds' ? <Ionicons name="cloud" size={32} color="#B0BEC5"/> :
-                          <Ionicons name="sunny" size={32} color="#FFB300"/>}
+                         {weatherData.weather[0].main === 'Rain' ? <Ionicons name="rainy" size={24} color="#4FC3F7"/> :
+                          weatherData.weather[0].main === 'Clouds' ? <Ionicons name="cloud" size={24} color="#B0BEC5"/> :
+                          <Ionicons name="sunny" size={24} color="#FFB300"/>}
                          <View style={{marginLeft:10}}>
-                             <Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:12}}>METEO {weatherData.name.toUpperCase()}</Text>
-                             <Text style={{fontSize:20, fontWeight:'900', color:'#333'}}>{Math.round(weatherData.main.temp)}°C</Text>
+                             <Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:10}}>METEO {weatherData.name.toUpperCase()}</Text>
+                             <Text style={{fontSize:16, fontWeight:'900', color:'#333'}}>{Math.round(weatherData.main.temp)}°C</Text>
                          </View>
                      </View>
                      <View style={{alignItems:'flex-end'}}>
-                         {weatherData.rain ? (
-                             <Text style={{color:THEME.accent, fontWeight:'bold'}}>💧 RISPARMIA ACQUA</Text>
-                         ) : weatherData.main.temp > 28 ? (
-                             <Text style={{color:THEME.danger, fontWeight:'bold'}}>🔥 IRRIGA OGGI</Text>
-                         ) : (
-                             <Text style={{color:THEME.info, fontWeight:'bold'}}>✅ STANDARD</Text>
-                         )}
-                         <Text style={{fontSize:10, color:'#666'}}>{weatherData.weather[0].description}</Text>
+                         {(() => {
+                             const advice = getAgronomicAdvice(weatherData);
+                             return (
+                                 <>
+                                     <Text style={{color: advice.color, fontWeight:'bold', fontSize:10}}>{advice.status}</Text>
+                                     <Text style={{fontSize:9, color:'#666', marginTop:0, maxWidth:120, textAlign:'right'}}>{advice.advice}</Text>
+                                 </>
+                             );
+                         })()}
                      </View>
                  </View>
-             </View>
-         )}
-
-         <View style={[styles.searchBox, {marginBottom: 10}]}><Ionicons name="key" size={20} color="#999"/><TextInput style={[styles.searchInput]} placeholder="Aggiungi Codice Listino..." value={inputCodicePartner} onChangeText={setInputCodicePartner}/><TouchableOpacity onPress={validaCodice}><Ionicons name="add-circle" size={30} color={THEME.accent}/></TouchableOpacity></View>
-         {activePartners.length > 0 && (<ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10, maxHeight:40}}>{activePartners.map((partner, idx) => (<TouchableOpacity key={idx} onPress={()=>removePartner(partner.codice_sconto)} style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.primary, paddingHorizontal:10, paddingVertical:5, borderRadius:20, marginRight:8}}><Text style={{color:'#fff', fontSize:11, fontWeight:'bold'}}>{partner.azienda} - {partner.nome_agente}</Text><Ionicons name="close-circle" size={16} color="#fff" style={{marginLeft:5}}/></TouchableOpacity>))}</ScrollView>)}
-         <View style={styles.searchBox}>
-             <Ionicons name="search" size={20} color="#666"/>
-             <TextInput style={styles.searchInput} placeholder="Cerca prodotto..." value={search} onChangeText={(t) => { setSearch(t); if(t.length > 3) trackEvent('RICERCA', t); }}/>
+             ) : (
+                 <Text style={{textAlign:'center', color:'#999', fontSize:10}}>Caricamento meteo...</Text>
+             )}
          </View>
-         <View style={{marginTop:15}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{activePartners.length > 0 ? [...new Set(activePartners.map(p => p.azienda))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>)) : ['TUTTI', ...new Set(productsDB.map(i=>i.marca).filter(x=>x))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>))}{activePartners.length > 1 && (<TouchableOpacity onPress={()=>setSelectedBrand('TUTTI')} style={[styles.chip, selectedBrand==='TUTTI' && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand==='TUTTI' && {color:'#fff'}]}>TUTTI I MIEI LISTINI</Text></TouchableOpacity>)}</ScrollView></View>
-         <View style={{marginTop:10}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['TUTTI', ...new Set(productsDB.map(i=>i.categoria).filter(c => c && !isPharmacyCategory(c)))].map(c => (<TouchableOpacity key={c} onPress={()=>setSelectedCategory(c?c.toUpperCase():'TUTTI')} style={[styles.chipSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {backgroundColor:THEME.accent, borderColor:THEME.accent}]}><Text style={[styles.chipTextSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {color:'#fff'}]}>{c}</Text></TouchableOpacity>))}</ScrollView></View>
+
+         <View style={[styles.searchBox, {marginBottom: 5, height:40}]}>
+            <Ionicons name="key" size={18} color="#999"/>
+            <TextInput style={[styles.searchInput, {fontSize:14}]} placeholder="Aggiungi Codice Listino..." value={inputCodicePartner} onChangeText={setInputCodicePartner}/>
+            <TouchableOpacity onPress={validaCodice}><Ionicons name="add-circle" size={26} color={THEME.accent}/></TouchableOpacity>
+         </View>
+         
+         {activePartners.length > 0 && (<ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:5, maxHeight:35}}>{activePartners.map((partner, idx) => (<TouchableOpacity key={idx} onPress={()=>removePartner(partner.codice_sconto)} style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.primary, paddingHorizontal:8, paddingVertical:4, borderRadius:20, marginRight:8}}><Text style={{color:'#fff', fontSize:10, fontWeight:'bold'}}>{partner.azienda} - {partner.nome_agente}</Text><Ionicons name="close-circle" size={14} color="#fff" style={{marginLeft:5}}/></TouchableOpacity>))}</ScrollView>)}
+         
+         <View style={[styles.searchBox, {height:40}]}>
+             <Ionicons name="search" size={18} color="#666"/>
+             <TextInput style={[styles.searchInput, {fontSize:14}]} placeholder="Cerca prodotto..." value={search} onChangeText={(t) => { setSearch(t); if(t.length > 3) trackEvent('RICERCA', t); }}/>
+         </View>
+         
+         <View style={{marginTop:10}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{activePartners.length > 0 ? [...new Set(activePartners.map(p => p.azienda))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>)) : ['TUTTI', ...new Set(productsDB.map(i=>i.marca).filter(x=>x))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>))}{activePartners.length > 1 && (<TouchableOpacity onPress={()=>setSelectedBrand('TUTTI')} style={[styles.chip, selectedBrand==='TUTTI' && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand==='TUTTI' && {color:'#fff'}]}>TUTTI I MIEI LISTINI</Text></TouchableOpacity>)}</ScrollView></View>
+         <View style={{marginTop:5}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['TUTTI', ...new Set(productsDB.map(i=>i.categoria).filter(c => c && !isPharmacyCategory(c)))].map(c => (<TouchableOpacity key={c} onPress={()=>setSelectedCategory(c?c.toUpperCase():'TUTTI')} style={[styles.chipSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {backgroundColor:THEME.accent, borderColor:THEME.accent}]}><Text style={[styles.chipTextSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {color:'#fff'}]}>{c}</Text></TouchableOpacity>))}</ScrollView></View>
       </View>
       <FlatList 
          data={productsDB
@@ -811,7 +859,10 @@ export default function App() {
                               {aiRecommendedProducts.map((p, i) => (
                                   <TouchableOpacity key={i} onPress={()=>{setSelectedProduct(p);}} style={{flexDirection:'row', alignItems:'center', padding:8, backgroundColor:'#f9f9f9', marginBottom:5, borderRadius:8, borderLeftWidth:4, borderColor:THEME.accent}}>
                                       <View style={{flex:1}}>
-                                          <Text style={{fontWeight:'bold', fontSize:11}}>{p.nome}</Text>
+                                          {/* NUOVO: MOSTRA ANCHE LA CATEGORIA */}
+                                          <Text style={{fontWeight:'bold', fontSize:11}}>
+                                              {p.nome} <Text style={{fontWeight:'normal', color:'#666', fontSize:10}}>({p.categoria})</Text>
+                                          </Text>
                                       </View>
                                       <Ionicons name="arrow-forward-circle" size={20} color={THEME.accent}/>
                                   </TouchableOpacity>
@@ -820,7 +871,7 @@ export default function App() {
                       )}
                       
                       <TouchableOpacity onPress={()=>{setShowAIModal(false); setSosSearch('');}} style={{alignSelf:'center', marginTop:5}}>
-                             <Text style={{color:'#666', fontSize:12}}>Chiudi</Text>
+                              <Text style={{color:'#666', fontSize:12}}>Chiudi</Text>
                       </TouchableOpacity>
                       </>
                   )}
@@ -956,97 +1007,160 @@ export default function App() {
             </View>
       </Modal>
 
-      {/* --- DETAIL MODAL (CALCOLATORE POTENZIATO) --- */}
+      {/* --- DETAIL MODAL (CALCOLATORE POTENZIATO E COMPATTO) --- */}
       <Modal visible={selectedProduct!==null} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setSelectedProduct(null)}>
         {selectedProduct && (
             <View style={{flex:1, backgroundColor:'#fff'}}>
-                <View style={{backgroundColor: selectedProduct.colore || '#C8E6C9', padding:20, paddingTop:Platform.OS==='android'?40:20, paddingBottom:30}}>
-                     <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start'}}>
-                         <TouchableOpacity onPress={()=>setSelectedProduct(null)} style={{marginBottom:15}}>
-                             <Ionicons name="close" size={30} color={selectedProduct.colore ? '#fff' : THEME.textDark}/>
-                         </TouchableOpacity>
-                         {/* PREZZO SCONTATO VISIBILE CON UNITÀ */}
-                         <Text style={{fontSize:24, fontWeight:'900', color:'#fff'}}>
-                             € {applyDisc(parseFloat(selectedProduct.prezzo)||0, getDiscount(selectedProduct)).toFixed(2)} <Text style={{fontSize:16}}> / {getDisplayUnit(selectedProduct.unita_misura)}</Text>
-                         </Text>
-                     </View>
-                     
-                     <Text style={{fontSize:32, fontWeight:'bold', color:selectedProduct.colore ? '#fff' : THEME.textDark}}>{selectedProduct.nome}</Text>
-                     <Text style={{fontSize:14, fontWeight:'bold', color:selectedProduct.colore ? '#fff' : THEME.info, marginTop:5, textTransform:'uppercase'}}>
-                         {selectedProduct.marca} • {selectedProduct.categoria}
-                     </Text>
-                </View>
+                {/* HEADER COMPATTO: Padding ridotto per vedere più contenuto */}
+                <View style={{backgroundColor: selectedProduct.colore || '#C8E6C9', padding:15, paddingTop:15, paddingBottom:15}}>
+                      <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start'}}>
+                          <TouchableOpacity onPress={()=>setSelectedProduct(null)} style={{marginBottom:5}}>
+                              <Ionicons name="close-circle" size={32} color={'rgba(0,0,0,0.5)'}/>
+                          </TouchableOpacity>
+                          {/* PREZZO SCONTATO */}
+                          <Text style={{fontSize:20, fontWeight:'900', color:'#fff', textShadowColor:'rgba(0,0,0,0.2)', textShadowRadius:3}}>
+                              € {applyDisc(parseFloat(selectedProduct.prezzo)||0, getDiscount(selectedProduct)).toFixed(2)}
+                          </Text>
+                      </View>
+                      
+                      <Text style={{fontSize:22, fontWeight:'bold', color:'#fff', lineHeight:26}}>{selectedProduct.nome}</Text>
+                      <Text style={{fontSize:12, fontWeight:'bold', color:'rgba(255,255,255,0.9)', marginTop:2, textTransform:'uppercase'}}>
+                          {selectedProduct.marca} • {selectedProduct.categoria}
+                      </Text>
+                 </View>
 
-                <ScrollView contentContainerStyle={{padding:20}}>
-                     <View style={styles.newCalcBox}>
-                         <Text style={{textAlign:'center', fontWeight:'bold', color:THEME.textDark, fontSize:12, marginBottom:15}}>MQ DA TRATTARE</Text>
-                         <TextInput style={styles.newCalcInput} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize} onBlur={() => trackEvent('CALCOLO_DOSI', selectedProduct.nome, parseFloat(lawnSize))} />
-                         
-                         {/* CALCOLO LIVE CON COSTI */}
-                         {lawnSize ? (<>{(() => {
-                             const specs = calcSpecs(selectedProduct, lawnSize); 
-                             return (
-                                <View>
-                                    {specs.qRad > 0 && (
-                                        <View style={{alignItems:'center', marginBottom:15}}>
-                                            <Text style={{fontSize:12, color:'#8D6E63', fontWeight:'bold'}}>RADICALE</Text>
-                                            <Text style={[styles.newCalcResult, {color:'#8D6E63'}]}>{specs.qRad.toFixed(2)} {specs.unit}</Text>
-                                            <Text style={{fontSize:14, color:'#666', fontWeight:'bold'}}>(€ {specs.costRad.toFixed(2)})</Text>
-                                        </View>
-                                    )}
-                                    {specs.qFog > 0 && (
-                                        <View style={{alignItems:'center'}}>
-                                            <Text style={{fontSize:12, color:THEME.textDark, fontWeight:'bold'}}>FOGLIARE</Text>
-                                            <Text style={styles.newCalcResult}>{specs.qFog.toFixed(2)} {specs.unit}</Text>
-                                            <Text style={{fontSize:14, color:'#666', fontWeight:'bold'}}>(€ {specs.costFog.toFixed(2)})</Text>
-                                        </View>
-                                    )}
-                                </View>
-                            )
-                        })()}<Text style={{textAlign:'center', fontSize:10, color:'#777', marginTop:15}}>* Costo stimato in base alla dose</Text></>) : (<Text style={{textAlign:'center', fontSize:32, color:'#ccc', marginVertical:20}}>- {selectedProduct.unita_misura === 'L' || selectedProduct.unita_misura === 'ML' ? 'ml' : 'Kg'}</Text>)}
-                     </View>
+                <ScrollView contentContainerStyle={{padding:15}}>
+                      {/* CALCOLATRICE PIU COMPATTA */}
+                      <View style={[styles.newCalcBox, {marginTop:10, padding:15}]}>
+                          <Text style={{textAlign:'center', fontWeight:'bold', color:THEME.textDark, fontSize:10, marginBottom:5}}>MQ DA TRATTARE</Text>
+                          <TextInput style={[styles.newCalcInput, {fontSize:20, padding:10, marginBottom:10, width:'60%'}]} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize} onBlur={() => trackEvent('CALCOLO_DOSI', selectedProduct.nome, parseFloat(lawnSize))} />
+                          
+                          {lawnSize ? (<>{(() => {
+                              const specs = calcSpecs(selectedProduct, lawnSize); 
+                              return (
+                                 <View style={{flexDirection:'row', justifyContent:'space-around', width:'100%'}}>
+                                     {specs.qRad > 0 && (
+                                         <View style={{alignItems:'center'}}>
+                                             <Text style={{fontSize:10, color:'#8D6E63', fontWeight:'bold'}}>RADICALE</Text>
+                                             <Text style={[styles.newCalcResult, {fontSize:24, color:'#8D6E63'}]}>{specs.qRad.toFixed(2)} {specs.unit}</Text>
+                                             <Text style={{fontSize:12, color:'#666', fontWeight:'bold'}}>(€ {specs.costRad.toFixed(2)})</Text>
+                                         </View>
+                                     )}
+                                     {specs.qFog > 0 && (
+                                         <View style={{alignItems:'center'}}>
+                                             <Text style={{fontSize:10, color:THEME.textDark, fontWeight:'bold'}}>FOGLIARE</Text>
+                                             <Text style={[styles.newCalcResult, {fontSize:24}]}>{specs.qFog.toFixed(2)} {specs.unit}</Text>
+                                             <Text style={{fontSize:12, color:'#666', fontWeight:'bold'}}>(€ {specs.costFog.toFixed(2)})</Text>
+                                         </View>
+                                     )}
+                                 </View>
+                              )
+                          })()}<Text style={{textAlign:'center', fontSize:9, color:'#777', marginTop:10}}>* Costo stimato</Text></>) : (<Text style={{textAlign:'center', fontSize:20, color:'#ccc', marginVertical:10}}>- {selectedProduct.unita_misura === 'L' || selectedProduct.unita_misura === 'ML' ? 'ml' : 'Kg'}</Text>)}
+                      </View>
 
-                     <Text style={{fontSize:12, color:'#999', marginTop:20, marginBottom:5}}>DESCRIZIONE TECNICA</Text><Text style={{fontSize:16, color:'#333', lineHeight:24}}>{selectedProduct.descrizione}</Text>
-                     <Text style={{fontSize:12, color:'#999', marginTop:20, marginBottom:5}}>COMPOSIZIONE CHIMICA</Text><View style={{backgroundColor:'#F5F5F5', padding:15, borderRadius:10, borderWidth:1, borderColor:'#eee'}}><Text style={{color:'#444', fontStyle:'italic'}}>{selectedProduct.composizione || "Non specificata"}</Text></View>
-                </ScrollView>
+                      <Text style={{fontSize:12, color:'#999', marginTop:15, marginBottom:5}}>DESCRIZIONE TECNICA</Text><Text style={{fontSize:14, color:'#333', lineHeight:22}}>{selectedProduct.descrizione}</Text>
+                      <Text style={{fontSize:12, color:'#999', marginTop:15, marginBottom:5}}>COMPOSIZIONE CHIMICA</Text><View style={{backgroundColor:'#F5F5F5', padding:10, borderRadius:10, borderWidth:1, borderColor:'#eee'}}><Text style={{color:'#444', fontStyle:'italic', fontSize:12}}>{selectedProduct.composizione || "Non specificata"}</Text></View>
+                 </ScrollView>
             </View>
         )}
       </Modal>
 
-      {/* Modal Mix */}
-      <Modal visible={showMixListModal} animationType="slide"><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:20}}><Text style={[styles.modalTitle, {color:THEME.primary}]}>Trattamento Tecnico</Text><TouchableOpacity onPress={()=>setShowMixListModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View>{(() => {const hasRadicalOnly = mixItems.some(i => parseFloat(i.dose_radicale) > 0 && parseFloat(i.dose_fogliare) === 0); const hasFoliarOnly = mixItems.some(i => parseFloat(i.dose_fogliare) > 0 && parseFloat(i.dose_radicale) === 0); if (hasRadicalOnly && hasFoliarOnly) {return (<View style={{backgroundColor:'#FFEBEE', padding:10, borderRadius:8, marginBottom:15, flexDirection:'row', alignItems:'center'}}><Ionicons name="warning" size={24} color={THEME.danger} style={{marginRight:10}}/><Text style={{color:THEME.danger, fontSize:12, flex:1, fontWeight:'bold'}}>ATTENZIONE: Stai mischiando prodotti esclusivamente radicali con prodotti esclusivamente fogliari!</Text></View>)}})()}<View style={{backgroundColor:THEME.secondary, padding:15, borderRadius:10, marginBottom:20}}><Text style={{fontSize:12, fontWeight:'bold', color:THEME.primary}}>AREA TOTALE (MQ)</Text><TextInput style={styles.mqInput} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize}/></View><ScrollView>{mixItems.map((p, idx) => {const specs = calcSpecs(p, lawnSize);return (<View key={idx} style={styles.cartItem}><View style={{flex:1}}><Text style={{fontWeight:'bold', color:THEME.primary}}>{p.nome}</Text><View style={{marginTop:5}}>{specs.qRad > 0 && (<View style={{flexDirection:'row', alignItems:'center', marginBottom:2}}><View style={{backgroundColor:'#FFF3E0', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#5D4037'}}>RAD</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qRad.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}{specs.qFog > 0 && (<View style={{flexDirection:'row', alignItems:'center'}}><View style={{backgroundColor:'#E8F5E9', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#1B5E20'}}>FOG</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qFog.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}</View></View><View style={{alignItems:'flex-end'}}><TouchableOpacity onPress={()=>toggleMix(p)} style={{marginTop:5}}><Ionicons name="trash-outline" size={20} color={THEME.danger}/></TouchableOpacity></View></View>)})}</ScrollView></View></SafeAreaView></Modal>
-      {/* Modal Carrello */}
-      <Modal visible={showCartModal} animationType="slide"><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:20, alignItems:'center'}}><Text style={[styles.modalTitle, {color:THEME.accent}]}>Preventivo Vendita</Text><TouchableOpacity onPress={()=>setShowCartModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View><ScrollView>{cartItems.map((p, idx) => {const price = applyDisc(parseFloat(p.prezzo)||0, getDiscount(p)); const qty = parseFloat(p.quantity)||0; const isLiquid = ['ML','L','LT'].includes((p.unita_misura||'').toUpperCase()); const displayUnit = isLiquid ? 'L' : 'Kg'; return (<View key={idx} style={styles.cartItem}><View style={{flex:1}}><Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:16}}>{p.nome}</Text><Text style={{fontSize:12, color:THEME.primary}}>€ {price.toFixed(2)} / {p.unita_misura}</Text></View><View style={{alignItems:'flex-end'}}><View style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:8}}><TextInput style={styles.qtyInput} placeholder="0" keyboardType="numeric" value={p.quantity} onChangeText={(t)=>updateCartQuantity(p.id, t)}/><Text style={{paddingRight:10, fontSize:12, fontWeight:'bold', color:'#666'}}>{displayUnit}</Text></View><Text style={{fontWeight:'bold', marginTop:5, fontSize:16}}>€ {(qty * price).toFixed(2)}</Text><TouchableOpacity onPress={()=>toggleCart(p)} style={{marginTop:5}}><Text style={{color:THEME.danger, fontSize:10}}>Rimuovi</Text></TouchableOpacity></View></View>);})}</ScrollView><View style={{borderTopWidth:1, borderColor:'#eee', paddingTop:20}}><View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:15}}><Text style={{fontSize:18, color:'#666'}}>Totale:</Text><Text style={{fontSize:28, fontWeight:'bold', color:THEME.accent}}>€ {calculateCartTotal().toFixed(2)}</Text></View><TouchableOpacity style={styles.btnBig} onPress={printPDF}><Ionicons name="print-outline" size={24} color="#fff" style={{marginRight:10}}/><Text style={styles.btnText}>STAMPA PDF</Text></TouchableOpacity></View></View></SafeAreaView></Modal>
+      {/* Modal Mix AGGIORNATO CON PREZZI DINAMICI E HEADER COMPATTO */}
+      <Modal visible={showMixListModal} animationType="slide"><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:15}}><Text style={[styles.modalTitle, {color:THEME.primary}]}>Trattamento Tecnico</Text><TouchableOpacity onPress={()=>setShowMixListModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View>{(() => {const hasRadicalOnly = mixItems.some(i => parseFloat(i.dose_radicale) > 0 && parseFloat(i.dose_fogliare) === 0); const hasFoliarOnly = mixItems.some(i => parseFloat(i.dose_fogliare) > 0 && parseFloat(i.dose_radicale) === 0); if (hasRadicalOnly && hasFoliarOnly) {return (<View style={{backgroundColor:'#FFEBEE', padding:10, borderRadius:8, marginBottom:10, flexDirection:'row', alignItems:'center'}}><Ionicons name="warning" size={24} color={THEME.danger} style={{marginRight:10}}/><Text style={{color:THEME.danger, fontSize:12, flex:1, fontWeight:'bold'}}>ATTENZIONE: Stai mischiando prodotti esclusivamente radicali con prodotti esclusivamente fogliari!</Text></View>)}})()}<View style={{backgroundColor:THEME.secondary, padding:10, borderRadius:10, marginBottom:15}}><Text style={{fontSize:12, fontWeight:'bold', color:THEME.primary}}>AREA TOTALE (MQ)</Text><TextInput style={styles.mqInput} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize}/></View>
+      <ScrollView>{mixItems.map((p, idx) => {
+          const specs = calcSpecs(p, lawnSize);
+          const totalCost = specs.costRad + specs.costFog;
+          const unitPrice = applyDisc(parseFloat(p.prezzo)||0, getDiscount(p));
+          
+          return (
+          <View key={idx} style={styles.cartItem}>
+              <View style={{flex:1}}>
+                  {/* PREZZO NEL MIX DINAMICO */}
+                  <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}>
+                      <Text style={{fontWeight:'bold', color:THEME.primary, flex:1}}>{p.nome}</Text>
+                      {lawnSize ? (
+                          <Text style={{fontWeight:'bold', color:THEME.accent, fontSize:14, marginRight:10}}>€ {totalCost.toFixed(2)}</Text>
+                      ) : (
+                          <Text style={{fontWeight:'bold', color:'#999', fontSize:12, marginRight:10}}>€ {unitPrice.toFixed(2)} / {p.unita_misura}</Text>
+                      )}
+                  </View>
+                  <View style={{marginTop:5}}>{specs.qRad > 0 && (<View style={{flexDirection:'row', alignItems:'center', marginBottom:2}}><View style={{backgroundColor:'#FFF3E0', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#5D4037'}}>RAD</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qRad.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}{specs.qFog > 0 && (<View style={{flexDirection:'row', alignItems:'center'}}><View style={{backgroundColor:'#E8F5E9', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#1B5E20'}}>FOG</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qFog.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}</View>
+              </View>
+              <View style={{alignItems:'flex-end'}}><TouchableOpacity onPress={()=>toggleMix(p)} style={{marginTop:5}}><Ionicons name="trash-outline" size={20} color={THEME.danger}/></TouchableOpacity></View>
+          </View>)})}</ScrollView></View></SafeAreaView></Modal>
+      
+      {/* Modal Carrello AGGIORNATO (NOME CLIENTE + FIX PREZZI) */}
+      <Modal visible={showCartModal} animationType="slide"><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}>
+            <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10, alignItems:'center'}}>
+                <Text style={[styles.modalTitle, {color:THEME.accent}]}>Preventivo Vendita</Text>
+                <TouchableOpacity onPress={()=>setShowCartModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity>
+            </View>
+            
+            {/* NUOVO: Input per nome cliente */}
+            <TextInput 
+                style={{backgroundColor:'#f0f0f0', padding:10, borderRadius:8, marginBottom:15, fontWeight:'bold'}} 
+                placeholder="Intestazione Ordine (es. Mario Rossi)" 
+                value={customerName} 
+                onChangeText={setCustomerName}
+            />
+
+            <ScrollView>{cartItems.map((p, idx) => {
+                const price = applyDisc(parseFloat(p.prezzo)||0, getDiscount(p)); 
+                const qty = parseFloat(p.quantity)||0; 
+                const displayUnit = getDisplayUnit(p.unita_misura); 
+                return (<View key={idx} style={styles.cartItem}>
+                    <View style={{flex:1}}>
+                        <Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:15}}>{p.nome}</Text>
+                        {/* FIX: Rimosso /ml o /lt che confondeva. Mostra solo il prezzo unitario pulito */}
+                        <Text style={{fontSize:12, color:THEME.primary}}>€ {price.toFixed(2)} cad.</Text> 
+                    </View>
+                    <View style={{alignItems:'flex-end'}}>
+                        <View style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:8}}>
+                            <TextInput style={styles.qtyInput} placeholder="0" keyboardType="numeric" value={p.quantity} onChangeText={(t)=>updateCartQuantity(p.id, t)}/>
+                            <Text style={{paddingRight:10, fontSize:12, fontWeight:'bold', color:'#666'}}>{displayUnit}</Text>
+                        </View>
+                        <Text style={{fontWeight:'bold', marginTop:5, fontSize:15}}>€ {(qty * price).toFixed(2)}</Text>
+                        <TouchableOpacity onPress={()=>toggleCart(p)} style={{marginTop:5}}><Text style={{color:THEME.danger, fontSize:10}}>Rimuovi</Text></TouchableOpacity>
+                    </View>
+                </View>);})}</ScrollView>
+            <View style={{borderTopWidth:1, borderColor:'#eee', paddingTop:15}}>
+                <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}>
+                    <Text style={{fontSize:16, color:'#666'}}>Totale:</Text>
+                    <Text style={{fontSize:24, fontWeight:'bold', color:THEME.accent}}>€ {calculateCartTotal().toFixed(2)}</Text>
+                </View>
+                <TouchableOpacity style={styles.btnBig} onPress={printPDF}><Ionicons name="print-outline" size={24} color="#fff" style={{marginRight:10}}/><Text style={styles.btnText}>STAMPA PDF</Text></TouchableOpacity>
+            </View>
+       </View></SafeAreaView></Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'#fff', padding:20 },
-  header: { backgroundColor:'#fff', padding:20, paddingTop:Platform.OS==='android'?40:20, borderBottomWidth:1, borderColor:'#eee' },
-  card: { flexDirection:'row', backgroundColor:'#fff', borderRadius:16, marginBottom:10, padding:10, alignItems:'center', shadowColor:'#000', shadowOpacity:0.05, shadowRadius:8, elevation:3 }, // CARD COMPATTA
+  header: { backgroundColor:'#fff', padding:10, paddingTop:Platform.OS==='android'?40:10, borderBottomWidth:1, borderColor:'#eee' }, // HEADER COMPATTO
+  card: { flexDirection:'row', backgroundColor:'#fff', borderRadius:16, marginBottom:10, padding:10, alignItems:'center', shadowColor:'#000', shadowOpacity:0.05, shadowRadius:8, elevation:3 }, 
   cardLeft: { paddingRight:15, borderRightWidth:1, borderColor:'#f5f5f5', justifyContent:'center' },
   cardCenter: { flex:1, paddingHorizontal:10 },
-  cardRight: { paddingLeft:10, alignItems:'flex-end', justifyContent:'center' }, // ALLINEATO A DESTRA
+  cardRight: { paddingLeft:10, alignItems:'flex-end', justifyContent:'center' }, 
   cardBrand: { fontSize:10, fontWeight:'bold', color:'#999', textTransform:'uppercase' },
-  cardTitle: { fontSize:14, fontWeight:'bold', color:THEME.textDark, marginVertical:2 }, // FONT RIDOTTO
+  cardTitle: { fontSize:14, fontWeight:'bold', color:THEME.textDark, marginVertical:2 }, 
   cardSub: { fontSize:10, color:'#555' },
-  searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:12, paddingHorizontal:15, height:48 },
+  searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:12, paddingHorizontal:10, height:48 },
   searchInput: { flex:1, marginLeft:10, fontSize:16 },
   mqInputSmall: { fontSize:24, fontWeight:'bold', textAlign:'center', borderBottomWidth:2, borderColor:THEME.accent, width:'60%', alignSelf:'center', padding:5 },
   mqInput: { fontSize:28, fontWeight:'bold', textAlign:'center', borderBottomWidth:1, borderColor:THEME.primary },
   qtyInput: { width:50, textAlign:'center', padding:10, fontWeight:'bold', fontSize:16 },
-  chip: { paddingHorizontal:16, paddingVertical:8, borderRadius:20, backgroundColor:'#f0f0f0', marginRight:8 },
-  chipText: { fontSize:12, fontWeight:'600' },
-  chipSmall: { paddingHorizontal:12, paddingVertical:6, borderRadius:15, borderWidth:1, borderColor:'#eee', marginRight:6 },
-  chipTextSmall: { fontSize:11, fontWeight:'600', color:'#555' },
+  chip: { paddingHorizontal:12, paddingVertical:6, borderRadius:20, backgroundColor:'#f0f0f0', marginRight:6 }, // CHIP PIÙ PICCOLI
+  chipText: { fontSize:11, fontWeight:'600' },
+  chipSmall: { paddingHorizontal:10, paddingVertical:4, borderRadius:15, borderWidth:1, borderColor:'#eee', marginRight:6 },
+  chipTextSmall: { fontSize:10, fontWeight:'600', color:'#555' },
   btnBig: { backgroundColor:THEME.accent, padding:18, borderRadius:16, alignItems:'center', width:'100%', flexDirection:'row', justifyContent:'center' },
   btnOutline: { borderWidth:1, borderColor:THEME.textDark, padding:16, borderRadius:12, width:'100%', alignItems:'center' },
   btnText: { color:'#fff', fontWeight:'bold', fontSize:16 },
   fab: { paddingHorizontal:20, paddingVertical:12, borderRadius:30, flexDirection:'row', alignItems:'center', elevation:8, shadowColor:'#000', shadowOpacity:0.3, shadowOffset:{width:0,height:4} },
   fabText: { color:'#fff', fontWeight:'bold', marginLeft:5, fontSize:12 },
   modalOverlay: { flex:1, backgroundColor:'rgba(0,0,0,0.5)', justifyContent:'center', padding:30 },
-  modalCard: { backgroundColor:'#fff', padding:20, borderRadius:20, alignItems:'center', width:'90%' }, // MODAL PIÙ STRETTO
+  modalCard: { backgroundColor:'#fff', padding:20, borderRadius:20, alignItems:'center', width:'90%' }, 
   modalTitle: { fontSize:24, fontWeight:'bold', color:THEME.textDark, marginBottom:10 },
   cartItem: { flexDirection:'row', alignItems:'center', paddingVertical:15, borderBottomWidth:1, borderColor:'#f0f0f0' },
   inputContainer: { flexDirection:'row', alignItems:'center', backgroundColor:'#F5F7FA', borderWidth:1, borderColor:'#E0E0E0', borderRadius:12, paddingHorizontal:15, paddingVertical:12, width:'100%', marginBottom:15 },
@@ -1071,5 +1185,5 @@ const styles = StyleSheet.create({
   newCalcResult: { fontSize:48, fontWeight:'bold', color:'#5E35B1' },
   
   // METEO STYLE
-  weatherCard: { backgroundColor:'#fff', padding:15, borderRadius:12, marginBottom:15, shadowColor:'#000', shadowOpacity:0.05, shadowRadius:5, elevation:2 }
+  weatherCard: { backgroundColor:'#fff', padding:10, borderRadius:12, marginBottom:5, shadowColor:'#000', shadowOpacity:0.05, shadowRadius:5, elevation:2 } // METEO RIDOTTO
 });
