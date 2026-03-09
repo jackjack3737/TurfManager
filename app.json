@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "AgriManager",
-    "slug": "agri-manager",
+    "name": "TurfManager",
+    "slug": "turf-manager",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -19,7 +19,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.jackjack37.agrimanager"
+      "package": "com.jackjack37.turfmanager"
     },
     "web": {
       "favicon": "./assets/favicon.png"

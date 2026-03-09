@@ -1,33 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import * as ImageManipulator from 'expo-image-manipulator';
-import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator, Alert, BackHandler, FlatList,
-    Image,
     KeyboardAvoidingView, Modal, Platform, SafeAreaView,
     ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 
 // --- CONFIGURAZIONE CHIAVI ---
 const WEATHER_API_KEY = 'b9f05ba6cff60cec20886ba24b486241'; 
-// NOTA: La chiave OpenAI è gestita lato server su Supabase per sicurezza.
-
 const supabaseUrl = 'https://azkpckrybldypqwdksjc.supabase.co';
 const supabaseKey = 'sb_publishable_b9EMDrQXatPARFQrhpoTVA_gQdx7kgq';
 const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
 });
-
-// --- PROMPT DI BACKUP (Se non va internet/db) ---
-const BACKUP_SYSTEM_PROMPT = `Sei un Agronomo Esperto.
-1. Se vedi erbacce/trifoglio: Diagnostica INFESTANTI -> CONSIGLIO CATEGORIA: DISERBANTE.
-2. Se vedi macchie: Diagnostica FUNGHI -> CONSIGLIO CATEGORIA: FUNGICIDA.
-3. Se vedi giallo: Diagnostica CARENZA -> CONSIGLIO CATEGORIA: CONCIME.`;
 
 // --- TEMA GRAFICO ---
 const THEME = {
@@ -59,7 +48,7 @@ const HighlightText = ({ text, term, baseStyle }) => {
 
 const BrandLogo = ({scale = 1}) => (
   <View style={{alignItems:'center', transform: [{scale}]}}>
-    <Text style={{fontSize:24, fontWeight:'900', color:THEME.textDark}}>AgriManager</Text>
+    <Text style={{fontSize:24, fontWeight:'900', color:THEME.textDark}}>TurfManager</Text>
     <Text style={{fontSize:10, color:THEME.accent, fontWeight:'bold', letterSpacing:1}}>powered by SINELICA</Text>
   </View>
 );
@@ -130,39 +119,13 @@ export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
   const [userRole, setUserRole] = useState(null); 
   const [session, setSession] = useState(null);
-  const [isPendingApproval, setIsPendingApproval] = useState(false);
 
-  // --- BIG DATA & METEO & AI ---
+  // --- BIG DATA & METEO ---
   const [deviceId, setDeviceId] = useState(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [welcomeData, setWelcomeData] = useState({ tipo: 'HOBBISTA', citta: '', mq: '' });
-  const [weatherData, setWeatherData] = useState(null); 
-   
-  // AI STATES
-  const [showContextModal, setShowContextModal] = useState(false); 
-  const [showAIModal, setShowAIModal] = useState(false);
-  const [aiImage, setAiImage] = useState(null);
-  const [aiContextData, setAiContextData] = useState({ date: '', city: '', plantType: '' }); 
-  const [aiAnalyzing, setAiAnalyzing] = useState(false);
-  const [aiResult, setAiResult] = useState(null);
-  
-  // LISTE PRODOTTI IA
-  const [aiCurativeProducts, setAiCurativeProducts] = useState([]); 
-  const [aiPreventiveProducts, setAiPreventiveProducts] = useState([]); 
-
-  const [activeSystemPrompt, setActiveSystemPrompt] = useState(BACKUP_SYSTEM_PROMPT); 
-
-  // AUTH
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [isRegistering, setIsRegistering] = useState(false); 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [regName, setRegName] = useState('');
-  const [regCompany, setRegCompany] = useState('');
-  const [showRegDropdown, setShowRegDropdown] = useState(false);
-  const [loadingAuth, setLoadingAuth] = useState(false);
-  const [availableBrands, setAvailableBrands] = useState([]);
+  const [weatherData, setWeatherData] = useState(null);
 
   // SHOP
   const [productsDB, setProductsDB] = useState([]);
@@ -175,29 +138,13 @@ export default function App() {
   const [showMixListModal, setShowMixListModal] = useState(false);
   const [customerName, setCustomerName] = useState(''); 
    
-  // EXTRA
   const [showSOSModal, setShowSOSModal] = useState(false);
-  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false); // NUOVO STATO DISCLAIMER
-  const [sosSearch, setSosSearch] = useState(''); 
-  const [showFavModal, setShowFavModal] = useState(false); 
-  const [selectedProduct, setSelectedProduct] = useState(null); 
-  const [lawnSize, setLawnSize] = useState(''); 
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
+  const [sosSearch, setSosSearch] = useState('');
+  const [showFavModal, setShowFavModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [lawnSize, setLawnSize] = useState('');
   const [favorites, setFavorites] = useState([]);
-  const [inputCodicePartner, setInputCodicePartner] = useState('');
-  const [activePartners, setActivePartners] = useState([]); 
-  const [clientAlerts, setClientAlerts] = useState([]);
-  const [selectedAlert, setSelectedAlert] = useState(null); 
-
-  // AGENT
-  const [agentProfileId, setAgentProfileId] = useState(null); 
-  const [agentTab, setAgentTab] = useState('CODES'); 
-  const [agentCodes, setAgentCodes] = useState([]); 
-  const [editingId, setEditingId] = useState(null);
-  const [newCodeData, setNewCodeData] = useState({ descrizione_interna: '', codice_sconto: '', s_sementi: '', s_granulari: '', s_liquidi: '' });
-  const [alertMessage, setAlertMessage] = useState('');
-  const [alertProducts, setAlertProducts] = useState([]); 
-  const [showProductPicker, setShowProductPicker] = useState(false);
-  const [sentAlerts, setSentAlerts] = useState([]);
 
   // --- GESTIONE CHIUSURA AUTOMATICA MODALI ---
   useEffect(() => {
@@ -218,28 +165,17 @@ export default function App() {
         if (showFavModal) { setShowFavModal(false); return true; }
         if (showDisclaimerModal) { setShowDisclaimerModal(false); return true; }
         if (showSettingsModal) { setShowSettingsModal(false); return true; }
-        if (showAIModal) { setShowAIModal(false); return true; }
-        if (showContextModal) { setShowContextModal(false); return true; }
-        if (selectedAlert) { setSelectedAlert(null); return true; }
         if (showWelcomeModal) { return false; }
         return false; 
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [selectedProduct, showCartModal, showMixListModal, showSOSModal, showFavModal, showSettingsModal, showAIModal, showContextModal, selectedAlert, showWelcomeModal, showDisclaimerModal]);
+  }, [selectedProduct, showCartModal, showMixListModal, showSOSModal, showFavModal, showSettingsModal, showWelcomeModal, showDisclaimerModal]);
 
   // --- INIT ---
-  useEffect(() => { 
+  useEffect(() => {
     checkUserIdentity().then((id) => { if(id) loadUserProfile(id); });
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      loadCommonData().then(() => { if(session) initAppAgente(session); else initAppCliente(); });
-    });
-    supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if(session) initAppAgente(session);
-      else { setUserRole(null); setAgentCodes([]); setSentAlerts([]); setIsPendingApproval(false); setAgentProfileId(null); }
-    });
+    loadCommonData().then(() => initAppCliente());
   }, []);
 
   const checkUserIdentity = async () => {
@@ -268,148 +204,6 @@ export default function App() {
       } catch(e) {}
   };
 
-  const handlePhotoAction = () => {
-      Alert.alert("Nuova Diagnosi", "Scegli la fonte:", [
-          { text: "Annulla", style: "cancel" },
-          { text: "🖼️ Galleria", onPress: () => pickImage('gallery') },
-          { text: "📸 Fotocamera", onPress: () => pickImage('camera') }
-      ]);
-  };
-
-  const pickImage = async (mode) => {
-      setAiCurativeProducts([]);
-      setAiPreventiveProducts([]);
-      
-      try {
-          let result;
-          // Opzioni iniziali per la selezione
-          const options = {
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true, 
-              aspect: [4, 3],
-              quality: 1, // Prendiamo la massima qualità iniziale
-          };
-
-          if (mode === 'camera') {
-              const { status } = await ImagePicker.requestCameraPermissionsAsync();
-              if (status !== 'granted') return Alert.alert("Permesso negato", "Serve la fotocamera.");
-              result = await ImagePicker.launchCameraAsync(options);
-          } else {
-              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-              if (status !== 'granted') return Alert.alert("Permesso negato", "Serve la galleria.");
-              result = await ImagePicker.launchImageLibraryAsync(options);
-          }
-
-          if (!result.canceled && result.assets && result.assets.length > 0) {
-              // --- OTTIMIZZAZIONE HIGH-RES ---
-              // Invece di 800px, saliamo a 1500px (Full HD+). 
-              // L'IA vedrà ogni dettaglio del fungo, ma il file resterà sotto i 3-4MB.
-              const manipResult = await ImageManipulator.manipulateAsync(
-                  result.assets[0].uri,
-                  [{ resize: { width: 1500 } }], // Risoluzione Alta
-                  { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true } // Compressione leggera (alta qualità)
-              );
-
-              setAiImage(manipResult);
-              
-              setAiContextData({ 
-                  date: new Date().toISOString().split('T')[0], 
-                  city: welcomeData.citta || '', 
-                  plantType: '' 
-              });
-              setShowContextModal(true);
-          }
-      } catch (e) {
-          Alert.alert("Errore", "Impossibile elaborare l'immagine.");
-      }
-  };
-
-  // --- NUOVA LOGICA RICERCA PRODOTTI INTELLIGENTE ---
-  const findSmartProducts = (diagnosisText) => {
-      let activeKeywords = [];
-      
-      // 1. Estrai keywords speciali (se presenti)
-      const tagMatch = diagnosisText.match(/CERCA_ATTIVI:\s*(.*)/i);
-      if (tagMatch && tagMatch[1]) {
-          activeKeywords = tagMatch[1].split(',').map(s => s.trim().toUpperCase());
-      } else {
-          // Fallback: cerca parole chiave comuni
-          const commonActives = ['PROPAMOCARB', 'AZOXYSTROBIN', 'TEBUCONAZOLO', 'RAME', 'ZOLFO', 'METALAXYL', 'DICAMBA', 'GLIFOSATE', 'FERRO', 'POTASSIO', 'SILICIO', 'ALGHE', 'TRICHODERMA', 'BACILLUS', 'MICORRIZE', 'PYTHIUM', 'RHIZOCTONIA', 'OIDIO'];
-          activeKeywords = commonActives.filter(word => diagnosisText.toUpperCase().includes(word));
-      }
-
-      // 2. Filtra nel DB
-      let matches = [];
-      if (activeKeywords.length > 0) {
-          matches = productsDB.filter(p => {
-              const content = (p.nome + " " + p.descrizione + " " + p.composizione + " " + p.note_tecniche).toUpperCase();
-              return activeKeywords.some(keyword => content.includes(keyword));
-          });
-      }
-
-      // 3. Filtra per Brand (Nasconde Barenbrug se ho Bottos, eccetto Farmacia)
-      if (activePartners.length > 0) {
-          const allowedBrands = activePartners.map(ap => ap.azienda.toUpperCase());
-          matches = matches.filter(p => {
-              if (isPharmacyCategory(p.categoria)) return true; 
-              return allowedBrands.includes(p.marca.toUpperCase());
-          });
-      }
-
-      // 4. Dividi in CURA e PREVENZIONE
-      const curative = matches.filter(p => isPharmacyCategory(p.categoria));
-      const preventive = matches.filter(p => !isPharmacyCategory(p.categoria));
-
-      setAiCurativeProducts(curative.slice(0, 4));
-      setAiPreventiveProducts(preventive.slice(0, 4));
-  };
-
-  const startAnalysis = async () => {
-      setShowContextModal(false);
-      setAiAnalyzing(true);
-      setShowAIModal(true);
-      setAiResult(null);
-      setAiCurativeProducts([]);
-      setAiPreventiveProducts([]);
-
-      let weatherContext = "Dato Meteo non disponibile.";
-      if (aiContextData.city) {
-          try {
-              const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${aiContextData.city}&appid=${WEATHER_API_KEY}&units=metric&lang=it`);
-              const wData = await response.json();
-              if(wData.cod === 200) weatherContext = `CONTESTO LIVE: Città: ${wData.name}, Temp: ${wData.main.temp}°C, Umidità: ${wData.main.humidity}%`;
-          } catch(e) {}
-      }
-
-      let plantContext = aiContextData.plantType ? `Pianta dichiarata: ${aiContextData.plantType}.` : "";
-
-      try {
-          // CHIAMATA SICURA SUPABASE
-          const { data, error } = await supabase.functions.invoke('diagnosi-ia', {
-              body: {
-                  imageBase64: aiImage.base64,
-                  userPrompt: `Analizza questa immagine. ${plantContext} ${weatherContext}`,
-                  systemPrompt: activeSystemPrompt
-              }
-          });
-
-          if(error) { 
-              setAiResult(`Errore connessione AI: ${error.message}`); 
-          } else if (data.choices && data.choices.length > 0) {
-              const diagnosis = data.choices[0].message.content;
-              setAiResult(diagnosis);
-              trackEvent('DIAGNOSI_AI', `Successo`);
-              findSmartProducts(diagnosis);
-          } else { 
-              setAiResult("Non riesco a identificare il problema."); 
-          }
-      } catch (error) { 
-          setAiResult("Errore di connessione."); 
-      } finally { 
-          setAiAnalyzing(false); 
-      }
-  };
-
   const handleEnterShop = async () => { setUserRole('CLIENTE'); const hasProfile = await AsyncStorage.getItem('HAS_PROFILE_DATA'); if (!hasProfile) setShowWelcomeModal(true); };
   const saveWelcomeData = async () => {
       if(!welcomeData.citta) return Alert.alert("Manca la città", "Inserisci la tua zona.");
@@ -433,8 +227,6 @@ export default function App() {
       } catch (e) { Alert.alert("Errore", "Riprova."); }
   };
   const trackEvent = async (action, detail, numericValue = 0) => { if(!deviceId) return; supabase.from('tracking_eventi').insert({ device_id: deviceId, tipo_azione: action, dettaglio: detail, valore_numerico: numericValue }).then(); };
-  const handleDismissAlert = () => { setSelectedAlert(null); setClientAlerts([]); }; 
-  const handlePostponeAlert = () => { setSelectedAlert(null); }; 
   const getSearchScore = (item, term) => {
       if (!term) return { qty: 0, count: 0 };
       const t = term.toLowerCase();
@@ -447,123 +239,33 @@ export default function App() {
   };
   const loadCommonData = async () => {
       const { data } = await supabase.from('Prodotti').select('*').order('marca').order('nome');
-      if(data) {
-          setProductsDB(data);
-          const sosCats = ['FUNGICIDA', 'DISERBANTE', 'INSETTICIDA', 'FUNGICIDA BIO', 'DISERBANTE PFnPE', 'INSETTICIDA PFnPE'];
-          const brands = [...new Set(data.filter(p => !sosCats.includes(p.categoria.toUpperCase())).map(p => p.marca).filter(m => m))];
-          setAvailableBrands(brands);
-          if(brands.length > 0) setRegCompany(brands[0]);
-      }
-      const { data: configData } = await supabase.from('configurazioni').select('valore').eq('chiave', 'system_prompt_agronomo').single();
-      if(configData) setActiveSystemPrompt(configData.valore);
+      if(data) setProductsDB(data);
       const savedSize = await AsyncStorage.getItem('LAWN_SIZE');
       if(savedSize) setLawnSize(savedSize);
   };
-  useEffect(() => { if (activePartners.length > 0) refreshAllAlerts(); else setClientAlerts([]); }, [activePartners]);
-  const refreshAllAlerts = async () => {
-      const emails = activePartners.map(p => p.email);
-      if(emails.length === 0) return;
-      const { data } = await supabase.from('alerts').select('*').in('agent_email', emails).order('created_at', {ascending: false});
-      if(data && data.length > 0) setClientAlerts(data);
-  };
   const initAppCliente = async () => { try { const favs = await AsyncStorage.getItem('FAVS'); if(favs) setFavorites(JSON.parse(favs)); } catch (e) {} finally { setAppIsReady(true); } };
-  const initAppAgente = async (currentSession) => {
-     if(!currentSession?.user?.email) return;
-     const { data: agentData, error } = await supabase.from('agenti').select('*').eq('email', currentSession.user.email).single();
-     if (error || !agentData || agentData.approvato === false) { setIsPendingApproval(true); setUserRole(null); } 
-     else { setIsPendingApproval(false); setUserRole('AGENTE'); setAgentProfileId(agentData.id); fetchAgentCodes(agentData.id); fetchAgentAlerts(currentSession.user.email); }
-     setShowAuthModal(false); setAppIsReady(true);
-  };
-  const checkApprovalStatus = async () => {
-      setLoadingAuth(true);
-      const { data: { session: freshSession } } = await supabase.auth.getSession();
-      setSession(freshSession); await initAppAgente(freshSession); setLoadingAuth(false);
-      if(isPendingApproval) Alert.alert("In attesa", "Account non ancora attivo."); else Alert.alert("Attivo!", "Benvenuto.");
-  };
-  const handleAuth = async () => {
-    setLoadingAuth(true);
-    let error = null;
-    if (isRegistering) {
-        if(!regName || !regCompany) { Alert.alert("Dati mancanti", "Inserisci tutti i campi."); setLoadingAuth(false); return; }
-        const res = await supabase.auth.signUp({ email, password, options: { data: { full_name: regName, company: regCompany } } });
-        error = res.error;
-        if (!error && res.data.user) {
-            const { error: dbError } = await supabase.from('agenti').insert({ nome_agente: regName, email: email, azienda: regCompany, approvato: false });
-            if (dbError) Alert.alert("Errore DB", dbError.message);
-            else { Alert.alert("Richiesta Inviata", "In attesa di approvazione."); setIsRegistering(false); setIsPendingApproval(true); }
-        }
-    } else { const res = await supabase.auth.signInWithPassword({ email, password }); error = res.error; }
-    if (error) Alert.alert("Errore", error.message); setLoadingAuth(false);
-  };
-  const handleLogout = async () => { setUserRole(null); setSession(null); setAgentCodes([]); setSentAlerts([]); setIsPendingApproval(false); await supabase.auth.signOut(); };
-  const fetchAgentCodes = async (profileId) => { if(!profileId) return; const { data } = await supabase.from('listini').select('*').eq('agente_id', profileId).order('created_at', { ascending: false }); if(data) setAgentCodes(data); };
-  const fetchAgentAlerts = async (email) => { if(!email) return; const { data } = await supabase.from('alerts').select('*').eq('agent_email', email).order('created_at', { ascending: false }); if(data) setSentAlerts(data); };
-  const saveOrUpdateCode = async () => {
-     if(!agentProfileId || !newCodeData.codice_sconto) return Alert.alert("Errore", "Dati mancanti");
-     const payload = { agente_id: agentProfileId, codice_sconto: newCodeData.codice_sconto.toUpperCase(), descrizione_interna: newCodeData.descrizione_interna, s_sementi: newCodeData.s_sementi, s_granulari: newCodeData.s_granulari, s_liquidi: newCodeData.s_liquidi };
-     let error;
-     if (editingId) { const res = await supabase.from('listini').update(payload).eq('id', editingId); error = res.error; } 
-     else { const res = await supabase.from('listini').insert(payload); error = res.error; }
-     if(error) Alert.alert("Errore", error.message); else { Alert.alert("Salvato", "Listino OK!"); setEditingId(null); setNewCodeData({ descrizione_interna: '', codice_sconto: '', s_sementi: '', s_granulari: '', s_liquidi: '' }); fetchAgentCodes(agentProfileId); }
-  };
-  const deleteCode = async (id) => { await supabase.from('listini').delete().eq('id', id); fetchAgentCodes(agentProfileId); };
-  const startEditing = (item) => { setEditingId(item.id); setNewCodeData({ codice_sconto: item.codice_sconto, descrizione_interna: item.descrizione_interna, s_sementi: item.s_sementi || '', s_granulari: item.s_granulari || '', s_liquidi: item.s_liquidi || '' }); };
-  const toggleAlertProduct = (product) => { const exists = alertProducts.find(p => p.id === product.id); if (exists) setAlertProducts(alertProducts.filter(p => p.id !== product.id)); else setAlertProducts([...alertProducts, product]); };
-  const sendAlert = async () => {
-      if(!alertMessage) return Alert.alert("Errore", "Messaggio vuoto");
-      const userEmail = session?.user?.email; if(!userEmail) return;
-      const { error } = await supabase.from('alerts').insert({ agent_email: userEmail, company: session?.user?.user_metadata?.company, message: alertMessage, product_name: alertProducts.map(p => p.nome).join(', ') || null });
-      if(error) Alert.alert("Errore", error.message); else { Alert.alert("Inviato!", "Clienti avvisati."); setAlertMessage(''); setAlertProducts([]); fetchAgentAlerts(userEmail); }
-  };
-  const deleteAlert = async (id) => { await supabase.from('alerts').delete().eq('id', id); fetchAgentAlerts(session?.user?.email); };
-  const validaCodice = async () => {
-     if(!inputCodicePartner) return;
-     const code = inputCodicePartner.toUpperCase().trim();
-     if(activePartners.some(p => p.codice_sconto === code)) { Alert.alert("Già attivo", "Codice già in uso."); setInputCodicePartner(''); return; }
-     const { data, error } = await supabase.from('listini').select(`*, agenti ( nome_agente, azienda, email, approvato )`).eq('codice_sconto', code).single();
-     if(error || !data || !data.agenti?.approvato) { Alert.alert("Errore", "Codice non valido."); return; }
-     const partnerData = { id: data.id, codice_sconto: data.codice_sconto, s_sementi: data.s_sementi, s_granulari: data.s_granulari, s_liquidi: data.s_liquidi, nome_agente: data.agenti.nome_agente, azienda: data.agenti.azienda, email: data.agenti.email };
-     setActivePartners([...activePartners.filter(p => p.azienda !== partnerData.azienda), partnerData]); 
-     trackEvent('ATTIVAZIONE_SCONTO', `Partner: ${partnerData.azienda}, Codice: ${code}`); 
-     Alert.alert("Attivato", `Sconti ${partnerData.azienda} OK.`); 
-     setInputCodicePartner('');
-     setSelectedBrand('TUTTI'); 
-  };
-  const removePartner = (codice) => { setActivePartners(activePartners.filter(p => p.codice_sconto !== codice)); };
-  const getDiscount = (p) => { const partner = activePartners.find(ap => (ap.azienda||'').toUpperCase() === (p.marca||'').toUpperCase()); if (!partner) return '0'; const c = (p.categoria||'').toUpperCase(); return (c.includes('SEMENTI')) ? partner.s_sementi : (c.includes('LIQUID')||c.includes('BIO')||c.includes('BAGNANT') ? partner.s_liquidi : partner.s_granulari); };
-  const applyDisc = (price, discStr) => { if(!discStr || discStr==='0') return price; let final = price; discStr.split('+').forEach(d => { const val = parseFloat(d); if(!isNaN(val) && val > 0) final = final - (final * (val/100)); }); return final; };
-  const calcSpecs = (p, mq) => { 
-      const size = parseFloat(mq) || 0; 
-      const price = parseFloat(p.prezzo) || 0; 
-      const finalPriceUnit = applyDisc(price, getDiscount(p)); 
-      const isLiquid = ['ML','L','LT'].includes((p.unita_misura||'').toUpperCase()); 
+  const calcSpecs = (p, mq) => {
+      const size = parseFloat(mq) || 0;
+      const isLiquid = ['ML','L','LT'].includes((p.unita_misura||'').toUpperCase());
       const qRadRaw = (parseFloat(p.dose_radicale||0) * size);
       const qFogRaw = (parseFloat(p.dose_fogliare||0) * size);
       const qRadDisplay = isLiquid ? qRadRaw : (qRadRaw / 1000);
       const qFogDisplay = isLiquid ? qFogRaw : (qFogRaw / 1000);
       const unitDisplay = isLiquid ? 'ml' : 'Kg';
-      const costRad = (qRadRaw / 1000) * finalPriceUnit; 
-      const costFog = (qFogRaw / 1000) * finalPriceUnit;
-      return { qRad: qRadDisplay, qFog: qFogDisplay, unit: unitDisplay, costRad, costFog }; 
+      return { qRad: qRadDisplay, qFog: qFogDisplay, unit: unitDisplay };
   };
   const updateCartQuantity = (id, txt) => { setCartItems(cartItems.map(p => p.id === id ? {...p, quantity: txt} : p)); };
-  const calculateCartTotal = () => { return cartItems.reduce((acc, p) => { const q = parseFloat(p.quantity) || 0; const price = applyDisc(parseFloat(p.prezzo)||0, getDiscount(p)); return acc + (q * price); }, 0); };
   const toggleFavorite = async (id) => { let newFavs = favorites.includes(id) ? favorites.filter(fid => fid !== id) : [...favorites, id]; setFavorites(newFavs); await AsyncStorage.setItem('FAVS', JSON.stringify(newFavs)); };
   const toggleMix = (product) => { const exists = mixItems.find(x => x.id === product.id); if (exists) setMixItems(mixItems.filter(x => x.id !== product.id)); else { setMixItems([...mixItems, product]); } };
   const toggleCart = (product) => { const exists = cartItems.find(p => p.id === product.id); if (exists) setCartItems(cartItems.filter(p => p.id !== product.id)); else setCartItems([...cartItems, { ...product, quantity: '' }]); };
   const updateLawnSize = (t) => { setLawnSize(t); AsyncStorage.setItem('LAWN_SIZE', t); supabase.from('profili_anonimi').update({ ultimo_mq_usato: parseFloat(t)||0 }).eq('device_id', deviceId).then(); };
-  const printPDF = async () => { 
-      let total = 0; 
-      const rows = cartItems.map(p => { 
-          const q = parseFloat(p.quantity) || 0; 
-          const price = applyDisc(parseFloat(p.prezzo)||0, getDiscount(p)); 
-          const cost = q * price; 
-          total += cost; 
-          const displayUnit = getDisplayUnit(p.unita_misura); 
-          return `<tr><td style="padding:5px;border-bottom:1px solid #ddd"><b>${p.nome}</b><br/><span style="font-size:10px;color:#666">${p.marca}</span></td><td style="padding:5px;border-bottom:1px solid #ddd;text-align:center;">${p.quantity || '0'} <span style="font-size:10px">${displayUnit}</span></td><td style="padding:5px;border-bottom:1px solid #ddd;text-align:right;">€ ${cost.toFixed(2)}</td></tr>`; 
-      }).join(''); 
-      const html = `<html><body style="font-family:Helvetica;padding:40px;"><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #00C853;padding-bottom:10px;"><div><h1 style="color:#1B5E20;margin:0;font-size:24px;">Preventivo</h1><p style="margin:0;color:#666;font-size:12px;">AgriManager powered by Sinelica</p></div><div style="text-align:right;"><p>Data: ${new Date().toLocaleDateString()}</p><h3 style="margin:0;">${customerName}</h3><p style="margin:0;font-size:10px;color:#666;">Listini attivi: ${activePartners.length}</p></div></div><table style="width:100%;border-collapse:collapse;margin-top:20px;"><tr style="background:#f5f5f5;color:#333"><th style="text-align:left;padding:5px">PRODOTTO</th><th style="text-align:center;">Q.TÀ</th><th style="text-align:right;">PREZZO</th></tr>${rows}</table><div style="margin-top:20px;text-align:right;"><p style="font-size:14px;color:#666;">TOTALE PREVENTIVO</p><h2 style="color:#00C853;margin:0;">€ ${total.toFixed(2)}</h2></div></body></html>`; 
-      try { const { uri } = await Print.printToFileAsync({ html }); await Sharing.shareAsync(uri); trackEvent('STAMPA_PDF', `Articoli: ${cartItems.length}, Tot: ${total}`); } catch(e){} 
+  const printPDF = async () => {
+      const rows = cartItems.map(p => {
+          const displayUnit = getDisplayUnit(p.unita_misura);
+          return `<tr><td style="padding:5px;border-bottom:1px solid #ddd"><b>${p.nome}</b><br/><span style="font-size:10px;color:#666">${p.marca}</span></td><td style="padding:5px;border-bottom:1px solid #ddd;text-align:center;">${p.quantity || '0'} <span style="font-size:10px">${displayUnit}</span></td></tr>`;
+      }).join('');
+      const html = `<html><body style="font-family:Helvetica;padding:40px;"><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #00C853;padding-bottom:10px;"><div><h1 style="color:#1B5E20;margin:0;font-size:24px;">Lista ordine</h1><p style="margin:0;color:#666;font-size:12px;">TurfManager powered by Sinelica</p></div><div style="text-align:right;"><p>Data: ${new Date().toLocaleDateString()}</p><h3 style="margin:0;">${customerName}</h3></div></div><table style="width:100%;border-collapse:collapse;margin-top:20px;"><tr style="background:#f5f5f5;color:#333"><th style="text-align:left;padding:5px">PRODOTTO</th><th style="text-align:center;">Q.TÀ</th></tr>${rows}</table></body></html>`;
+      try { const { uri } = await Print.printToFileAsync({ html }); await Sharing.shareAsync(uri); trackEvent('STAMPA_PDF', `Articoli: ${cartItems.length}`); } catch(e){}
   };
 
   if(!appIsReady) return <View style={styles.center}><ActivityIndicator size="large" color={THEME.accent}/></View>;
@@ -576,7 +278,7 @@ export default function App() {
             <View style={styles.modalOverlay}>
                 <View style={styles.modalCard}>
                     <Ionicons name="leaf-outline" size={50} color={THEME.accent} />
-                    <Text style={{fontSize:22, fontWeight:'bold', color:THEME.textDark, marginTop:10, marginBottom:5}}>Benvenuto in AgriManager!</Text>
+                    <Text style={{fontSize:22, fontWeight:'bold', color:THEME.textDark, marginTop:10, marginBottom:5}}>Benvenuto in TurfManager!</Text>
                     <Text style={{textAlign:'center', color:'#666', marginBottom:20}}>Per aiutarti al meglio con le dosi e il meteo, dicci chi sei.</Text>
                     <View style={{flexDirection:'row', gap:10, marginBottom:15, width:'100%'}}>
                         <TouchableOpacity onPress={()=>setWelcomeData({...welcomeData, tipo: 'HOBBISTA'})} style={{flex:1, padding:15, borderRadius:10, borderWidth:2, borderColor: welcomeData.tipo==='HOBBISTA'?THEME.accent:'#eee', backgroundColor: welcomeData.tipo==='HOBBISTA'?'#E8F5E9':'#fff', alignItems:'center'}}>
@@ -600,190 +302,13 @@ export default function App() {
             <Text style={styles.btnText}>ENTRA NELLO SHOP</Text>
             <Ionicons name="cart-outline" size={24} color="#fff" style={{marginLeft:10}}/>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.btnOutline,{marginTop:20}]} onPress={()=>{setShowAuthModal(true); setIsRegistering(false);}}>
-            <Text style={{color:THEME.textDark, fontWeight:'bold'}}>ACCESSO AGENTI</Text>
-            <Ionicons name="briefcase-outline" size={20} color={THEME.textDark} style={{marginLeft:10}}/>
-        </TouchableOpacity>
-        <Modal visible={showAuthModal} transparent animationType="fade" onRequestClose={()=>setShowAuthModal(false)}>
-            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
-                <View style={styles.modalCard}>
-                    <View style={{alignItems:'center', marginBottom:20}}>
-                        <BrandLogo scale={0.8}/>
-                        <Text style={{fontSize:18, fontWeight:'bold', color:THEME.primary, marginTop:10}}>{isRegistering ? 'Nuovo Profilo Agente' : 'Login Portale Agenti'}</Text>
-                    </View>
-                    {isRegistering && (<>
-                        <View style={styles.inputContainer}><Ionicons name="person-outline" size={20} color="#999" style={{marginRight:10}}/><TextInput style={{flex:1, fontSize:16, color:'#333'}} placeholder="Nome e Cognome" value={regName} onChangeText={setRegName}/></View>
-                        <TouchableOpacity style={styles.inputContainer} onPress={()=>setShowRegDropdown(!showRegDropdown)}>
-                            <Ionicons name="business-outline" size={20} color="#999" style={{marginRight:10}}/><Text style={{flex:1, fontSize:16, color: regCompany ? '#333':'#999'}}>{regCompany || "Azienda di Riferimento"}</Text><Ionicons name="chevron-down" size={20} color="#999"/>
-                        </TouchableOpacity>
-                        {showRegDropdown && (<View style={styles.dropContainer}><ScrollView keyboardShouldPersistTaps="handled">{availableBrands.map(c => (<TouchableOpacity key={c} style={styles.dropItem} onPress={()=>{setRegCompany(c); setShowRegDropdown(false)}}><Text>{c}</Text></TouchableOpacity>))}</ScrollView></View>)}
-                    </>)}
-                    <View style={styles.inputContainer}><Ionicons name="mail-outline" size={20} color="#999" style={{marginRight:10}}/><TextInput style={{flex:1, fontSize:16, color:'#333'}} placeholder="Email Aziendale" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail}/></View>
-                    <View style={styles.inputContainer}><Ionicons name="lock-closed-outline" size={20} color="#999" style={{marginRight:10}}/><TextInput style={{flex:1, fontSize:16, color:'#333'}} placeholder="Password" secureTextEntry value={password} onChangeText={setPassword}/></View>
-                    <TouchableOpacity style={[styles.btnBig, {marginTop:15}]} onPress={handleAuth} disabled={loadingAuth}>{loadingAuth ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>{isRegistering ? 'INVIA' : 'ACCEDI'}</Text>}</TouchableOpacity>
-                    <View style={{flexDirection:'row', marginTop:20, gap:5}}><Text style={{color:'#666'}}>{isRegistering ? "Hai già le credenziali?" : "Non sei ancora registrato?"}</Text><TouchableOpacity onPress={()=>setIsRegistering(!isRegistering)}><Text style={{color:THEME.primary, fontWeight:'bold'}}>{isRegistering ? "Accedi" : "Crea Account"}</Text></TouchableOpacity></View>
-                    <TouchableOpacity onPress={()=>setShowAuthModal(false)} style={{marginTop:15}}><Text style={{color:THEME.danger, fontSize:14}}>Chiudi</Text></TouchableOpacity>
-                </View>
-            </KeyboardAvoidingView>
-        </Modal>
     </View> 
-  );
-
-  // --- VISTA PENDING ---
-  if(isPendingApproval) return ( 
-    <View style={styles.center}>
-        <Ionicons name="shield-checkmark-outline" size={80} color={THEME.warning} />
-        <Text style={{fontSize:22, fontWeight:'bold', marginTop:20, color:THEME.textDark}}>REGISTRAZIONE RICEVUTA</Text>
-        <Text style={{textAlign:'center', marginTop:10, paddingHorizontal:40, color:'#666', lineHeight:22}}>Il tuo account è stato creato. Attendi l'attivazione da parte dell'amministrazione.</Text>
-        <TouchableOpacity style={[styles.btnBig, {marginTop:40, width:250}]} onPress={checkApprovalStatus} disabled={loadingAuth}>{loadingAuth ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>VERIFICA ORA</Text>}</TouchableOpacity>
-        <TouchableOpacity style={[styles.btnOutline, {marginTop:15, width:250}]} onPress={handleLogout}><Text style={{color:THEME.textDark, fontWeight:'bold'}}>ESCI</Text></TouchableOpacity>
-    </View> 
-  );
-
-  // --- VISTA AGENTE ---
-  if(userRole === 'AGENTE' && session) return ( 
-    <SafeAreaView style={{flex:1, backgroundColor:THEME.bg}}>
-        <View style={styles.header}>
-            <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}>
-                <BrandLogo/>
-                <TouchableOpacity onPress={handleLogout}><Ionicons name="log-out-outline" size={24} color={THEME.danger}/></TouchableOpacity>
-            </View>
-            <Text style={{textAlign:'center', marginTop:5, color:'#666', fontSize:10}}>{session?.user?.user_metadata?.full_name?.toUpperCase()}</Text>
-            <View style={{flexDirection:'row', marginTop:15, backgroundColor:'#eee', borderRadius:10, padding:2}}>
-                <TouchableOpacity onPress={()=>setAgentTab('CODES')} style={[styles.tab, agentTab==='CODES' && styles.activeTab]}><Text style={[styles.tabText, agentTab==='CODES' && styles.activeTabText]}>SCONTI</Text></TouchableOpacity>
-                <TouchableOpacity onPress={()=>setAgentTab('ALERTS')} style={[styles.tab, agentTab==='ALERTS' && styles.activeTab]}><Text style={[styles.tabText, agentTab==='ALERTS' && styles.activeTabText]}>AVVISI</Text></TouchableOpacity>
-            </View>
-        </View>
-        <ScrollView contentContainerStyle={{padding:15}}>
-            {agentTab === 'CODES' && (<>
-                <View style={[styles.cardForm, editingId && {borderWidth:2, borderColor:THEME.warning}]}>
-                    <Text style={styles.sectionTitle}>{editingId ? "MODIFICA CODICE" : "NUOVO CODICE"}</Text>
-                    <TextInput style={[styles.inputSmall, {borderColor:THEME.accent, color:THEME.accent, fontWeight:'bold', marginBottom:10}]} value={newCodeData.codice_sconto} onChangeText={t=>setNewCodeData({...newCodeData, codice_sconto:t})} autoCapitalize="characters" placeholder="CODICE (es: ROSSI2026)"/>
-                    <TextInput style={[styles.inputSmall, {marginBottom:10}]} value={newCodeData.descrizione_interna} onChangeText={t=>setNewCodeData({...newCodeData, descrizione_interna:t})} placeholder="Descrizione (es. Cliente VIP)"/>
-                    <View style={{flexDirection:'row', gap:5}}>
-                        <TextInput style={[styles.inputDiscount, {flex:1}]} placeholder="Sem%" value={newCodeData.s_sementi} onChangeText={t=>setNewCodeData({...newCodeData, s_sementi:t})}/>
-                        <TextInput style={[styles.inputDiscount, {flex:1}]} placeholder="Gran%" value={newCodeData.s_granulari} onChangeText={t=>setNewCodeData({...newCodeData, s_granulari:t})}/>
-                        <TextInput style={[styles.inputDiscount, {flex:1}]} placeholder="Liq%" value={newCodeData.s_liquidi} onChangeText={t=>setNewCodeData({...newCodeData, s_liquidi:t})}/>
-                    </View>
-                    <TouchableOpacity style={[styles.btnBig, {marginTop:15, backgroundColor: editingId ? THEME.warning : THEME.textDark}]} onPress={saveOrUpdateCode}><Text style={styles.btnText}>{editingId ? "AGGIORNA" : "SALVA"}</Text></TouchableOpacity>
-                    {editingId && <TouchableOpacity onPress={()=>{setEditingId(null); setNewCodeData({ descrizione_interna: '', codice_sconto: '', s_sementi: '', s_granulari: '', s_liquidi: '' })}} style={{alignSelf:'center', marginTop:10}}><Text style={{color:'red'}}>Annulla</Text></TouchableOpacity>}
-                </View>
-                <Text style={[styles.sectionTitle, {marginTop:20, marginLeft:5}]}>LISTA CODICI</Text>
-                <View style={styles.table}>
-                    <View style={[styles.tableRow, {backgroundColor:THEME.tableHeader}]}><Text style={[styles.col, {flex:2, fontWeight:'bold'}]}>CODICE</Text><Text style={[styles.col, {flex:2, fontWeight:'bold'}]}>NOTE</Text><Text style={[styles.col, {flex:1, textAlign:'center'}]}>AZIONI</Text></View>
-                    {agentCodes.map((item, idx) => (
-                        <View key={idx} style={styles.tableRow}>
-                            <TouchableOpacity style={{flex:2, padding:8}} onPress={()=>showCodeDetails(item)}><Text style={{color:THEME.accent, fontWeight:'bold', textDecorationLine:'underline'}}>{item.codice_sconto}</Text></TouchableOpacity>
-                            <Text style={[styles.col, {flex:2, fontSize:11}]}>{item.descrizione_interna}</Text>
-                            <View style={{flex:1, flexDirection:'row', justifyContent:'center'}}>
-                                <TouchableOpacity onPress={()=>startEditing(item)} style={{marginRight:8}}><Ionicons name="pencil" size={18} color={THEME.warning}/></TouchableOpacity>
-                                <TouchableOpacity onPress={()=>deleteCode(item.id)}><Ionicons name="trash" size={18} color={THEME.danger}/></TouchableOpacity>
-                            </View>
-                        </View>
-                    ))}
-                </View>
-            </>)}
-            {agentTab === 'ALERTS' && (<>
-                <View style={styles.cardForm}>
-                    <Text style={[styles.sectionTitle, {color:THEME.danger}]}>INVIA ALERT TECNICO</Text>
-                    <TextInput style={[styles.inputSmall, {height:80, textAlignVertical:'top'}]} multiline placeholder="Scrivi il messaggio dettagliato per i clienti..." value={alertMessage} onChangeText={setAlertMessage}/>
-                    <TouchableOpacity style={[styles.inputSmall, {marginTop:10, flexDirection:'row', justifyContent:'space-between'}]} onPress={()=>setShowProductPicker(true)}>
-                        <Text style={{color: alertProducts.length>0 ? THEME.primary : '#999', fontWeight: alertProducts.length>0?'bold':'normal'}}>{alertProducts.length > 0 ? `${alertProducts.length} Prodotti Selezionati` : "Seleziona Prodotti Consigliati (Opz)"}</Text>
-                        <Ionicons name="list" size={20} color="#666"/>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.btnBig, {marginTop:15, backgroundColor:THEME.danger}]} onPress={sendAlert}>
-                        <Ionicons name="megaphone-outline" size={20} color="#fff" style={{marginRight:5}}/>
-                        <Text style={styles.btnText}>INVIA AI CLIENTI</Text>
-                    </TouchableOpacity>
-                </View>
-                <Text style={[styles.sectionTitle, {marginTop:20, marginLeft:5}]}>STORICO AVVISI</Text>
-                {sentAlerts.map((alert, idx) => (
-                    <View key={idx} style={{backgroundColor:'#fff', padding:15, borderRadius:10, marginBottom:10, borderLeftWidth:4, borderColor:THEME.danger, flexDirection:'row', justifyContent:'space-between'}}>
-                        <View style={{flex:1}}>
-                            <Text numberOfLines={2} style={{fontWeight:'bold', color:THEME.danger}}>{alert.message}</Text>
-                            <Text style={{fontSize:10, color:'#999', marginTop:5}}>{new Date(alert.created_at).toLocaleDateString()}</Text>
-                        </View>
-                        <TouchableOpacity onPress={()=>deleteAlert(alert.id)}><Ionicons name="trash" size={20} color="#999"/></TouchableOpacity>
-                    </View>
-                ))}
-                <Modal visible={showProductPicker} animationType="slide">
-                    <SafeAreaView style={{flex:1}}>
-                        <View style={{padding:20, borderBottomWidth:1, borderColor:'#eee', flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}>
-                            <Text style={{fontWeight:'bold', fontSize:18}}>Seleziona Prodotti</Text>
-                            <TouchableOpacity onPress={()=>setShowProductPicker(false)}><Text style={{color:THEME.primary, fontWeight:'bold'}}>FATTO</Text></TouchableOpacity>
-                        </View>
-                        <FlatList 
-                            data={productsDB.filter(p => p.marca.toUpperCase() === session?.user?.user_metadata?.company.toUpperCase())} 
-                            keyExtractor={i=>i.id.toString()} 
-                            renderItem={({item}) => { 
-                                const isSelected = alertProducts.some(p => p.id === item.id); 
-                                return ( 
-                                    <TouchableOpacity style={{padding:15, borderBottomWidth:1, borderColor:'#eee', backgroundColor: isSelected ? '#E8F5E9' : '#fff', flexDirection:'row', justifyContent:'space-between', alignItems:'center'}} onPress={()=>toggleAlertProduct(item)}>
-                                        <View><Text style={{fontWeight:'bold'}}>{item.nome}</Text><Text style={{fontSize:12, color:'#666'}}>{item.categoria}</Text></View>
-                                        {isSelected && <Ionicons name="checkmark-circle" size={24} color={THEME.accent}/>}
-                                    </TouchableOpacity> 
-                                );
-                            }}
-                        />
-                    </SafeAreaView>
-                </Modal>
-            </>)}
-        </ScrollView>
-    </SafeAreaView> 
   );
 
   // --- UI: SHOP CLIENTI (PRINCIPALE) ---
   return (
     <SafeAreaView style={{flex:1, backgroundColor:THEME.bg, paddingTop: Platform.OS==='android'?StatusBar.currentHeight:0}}>
       <StatusBar barStyle="dark-content"/>
-      {clientAlerts.length > 0 && (<TouchableOpacity activeOpacity={0.9} onPress={()=>setSelectedAlert(clientAlerts[0])} style={{backgroundColor:THEME.danger, padding:12, marginBottom:1, flexDirection:'row', alignItems:'center', justifyContent:'center'}}><Ionicons name="warning" size={24} color="#fff" style={{marginRight:10}}/><View style={{flex:1}}><Text style={{color:'#fff', fontWeight:'bold', fontSize:11, textTransform:'uppercase'}}>AVVISO {clientAlerts[0].company}</Text><Text numberOfLines={2} style={{color:'#fff', fontSize:13}}>{clientAlerts[0].message}</Text><Text style={{color:'#FFF', fontSize:10, marginTop:4, textDecorationLine:'underline', fontWeight:'bold'}}>LEGGI AVVISO COMPLETO ➔</Text></View></TouchableOpacity>)}
-      
-      {/* MODAL AVVISO ALERT */}
-      <Modal visible={selectedAlert !== null} animationType="fade" transparent onRequestClose={handleDismissAlert}>
-          <View style={styles.modalOverlay}>
-              <View style={styles.modalCard}>
-                  <View style={{alignItems:'center', marginBottom:15}}>
-                      <Ionicons name="megaphone" size={40} color={THEME.danger} />
-                      <Text style={{fontSize:18, fontWeight:'900', color:THEME.danger, marginTop:10}}>AVVISO TECNICO</Text>
-                      <Text style={{fontSize:12, color:'#666'}}>{selectedAlert?.company} - {new Date(selectedAlert?.created_at).toLocaleDateString()}</Text>
-                  </View>
-                  <ScrollView style={{maxHeight: 300, width:'100%', marginBottom:20}}>
-                      <Text style={{fontSize:16, lineHeight:24, color:'#333', textAlign:'justify'}}>{selectedAlert?.message}</Text>
-                      {selectedAlert?.product_name && (
-                          <View style={{marginTop:20, backgroundColor:'#FBE9E7', padding:10, borderRadius:8}}>
-                              <Text style={{fontWeight:'bold', color:THEME.danger, fontSize:12, marginBottom:5}}>PRODOTTI CONSIGLIATI (Clicca per aprire):</Text>
-                              <View style={{flexDirection:'row', flexWrap:'wrap', gap:8}}>
-                                  {selectedAlert.product_name.split(',').map((pName, idx) => {
-                                      const cleanName = pName.trim();
-                                      const productFound = productsDB.find(p => p.nome.toUpperCase() === cleanName.toUpperCase());
-                                      return (
-                                          <TouchableOpacity 
-                                              key={idx} 
-                                              onPress={() => {
-                                                  if (productFound) {
-                                                      handleDismissAlert(); 
-                                                      setTimeout(() => setSelectedProduct(productFound), 500); 
-                                                  } else {
-                                                      Alert.alert("Info", "Prodotto non trovato nel catalogo attuale.");
-                                                  }
-                                              }}
-                                              style={{backgroundColor:'#fff', paddingHorizontal:10, paddingVertical:5, borderRadius:15, borderWidth:1, borderColor:THEME.danger}}
-                                          >
-                                              <Text style={{color:THEME.danger, fontWeight:'bold', fontSize:12}}>{cleanName} {productFound ? '➔' : ''}</Text>
-                                          </TouchableOpacity>
-                                      );
-                                  })}
-                              </View>
-                          </View>
-                      )}
-                  </ScrollView>
-                  <View style={{width:'100%', gap:10}}>
-                      <TouchableOpacity style={[styles.btnBig, {backgroundColor:THEME.primary}]} onPress={handleDismissAlert}><Text style={styles.btnText}>HO CAPITO (ARCHIVIA)</Text></TouchableOpacity>
-                      <TouchableOpacity style={[styles.btnOutline, {borderColor:'#999'}]} onPress={handlePostponeAlert}><Text style={{color:'#666', fontWeight:'bold'}}>RICORDAMELO DOPO</Text></TouchableOpacity>
-                  </View>
-              </View>
-          </View>
-      </Modal>
 
       <View style={styles.header}>
          <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
@@ -821,14 +346,6 @@ export default function App() {
              )}
          </View>
 
-         <View style={[styles.searchBox, {marginBottom: 5, height:40}]}>
-            <Ionicons name="key" size={18} color="#999"/>
-            <TextInput style={[styles.searchInput, {fontSize:14}]} placeholder="Aggiungi Codice Listino..." value={inputCodicePartner} onChangeText={setInputCodicePartner}/>
-            <TouchableOpacity onPress={validaCodice}><Ionicons name="add-circle" size={26} color={THEME.accent}/></TouchableOpacity>
-         </View>
-         
-         {activePartners.length > 0 && (<ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:5, maxHeight:35}}>{activePartners.map((partner, idx) => (<TouchableOpacity key={idx} onPress={()=>removePartner(partner.codice_sconto)} style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.primary, paddingHorizontal:8, paddingVertical:4, borderRadius:20, marginRight:8}}><Text style={{color:'#fff', fontSize:10, fontWeight:'bold'}}>{partner.azienda} - {partner.nome_agente}</Text><Ionicons name="close-circle" size={14} color="#fff" style={{marginLeft:5}}/></TouchableOpacity>))}</ScrollView>)}
-         
          <View style={[styles.searchBox, {height:40}]}>
              <Ionicons name="search" size={18} color="#666"/>
              <TextInput style={[styles.searchInput, {fontSize:14}]} placeholder="Cerca prodotto..." value={search} onChangeText={(t) => { setSearch(t); if(t.length > 3) trackEvent('RICERCA', t); }}/>
@@ -840,8 +357,7 @@ export default function App() {
                     <Ionicons name="heart" size={16} color={THEME.danger} style={{marginRight:4}}/>
                     <Text style={[styles.chipText, {color:THEME.danger}]}>PREFERITI</Text>
                 </TouchableOpacity>
-                {activePartners.length > 0 ? [...new Set(activePartners.map(p => p.azienda))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>)) : ['TUTTI', ...new Set(productsDB.map(i=>i.marca).filter(x=>x))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>))}
-                {activePartners.length > 1 && (<TouchableOpacity onPress={()=>setSelectedBrand('TUTTI')} style={[styles.chip, selectedBrand==='TUTTI' && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand==='TUTTI' && {color:'#fff'}]}>TUTTI I MIEI LISTINI</Text></TouchableOpacity>)}
+                {['TUTTI', ...new Set(productsDB.map(i=>i.marca).filter(x=>x))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>))}
             </ScrollView>
          </View>
          <View style={{marginTop:5}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['TUTTI', ...new Set(productsDB.map(i=>i.categoria).filter(c => c && !isPharmacyCategory(c)))].map(c => (<TouchableOpacity key={c} onPress={()=>setSelectedCategory(c?c.toUpperCase():'TUTTI')} style={[styles.chipSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {backgroundColor:THEME.accent, borderColor:THEME.accent}]}><Text style={[styles.chipTextSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {color:'#fff'}]}>{c}</Text></TouchableOpacity>))}</ScrollView></View>
@@ -849,9 +365,7 @@ export default function App() {
       <FlatList 
          data={productsDB
              .filter(p => {
-                 const allowedBrands = activePartners.map(ap => ap.azienda.toUpperCase());
                  if (isPharmacyCategory(p.categoria) && !search && selectedCategory !== 'SOS FARMACIA') return false;
-                 if (allowedBrands.length > 0 && !allowedBrands.includes(p.marca.toUpperCase())) return false;
                  if (search && getSearchScore(p, search).count === 0) return false;
                  if (selectedBrand !== 'TUTTI' && p.marca.toUpperCase() !== selectedBrand.toUpperCase()) return false;
                  if (selectedCategory !== 'TUTTI' && p.categoria.toUpperCase() !== selectedCategory) return false;
@@ -871,12 +385,8 @@ export default function App() {
              const isFav = favorites.includes(item.id);
              const inCart = cartItems.some(p=>p.id===item.id);
              const inMix = mixItems.some(p=>p.id===item.id);
-             const hasAccess = activePartners.length > 0;
              const cardColor = getCategoryColor(item.categoria);
              const showBrand = shouldShowBrand(item.categoria);
-             const price = parseFloat(item.prezzo) || 0;
-             const discount = getDiscount(item);
-             const finalPrice = applyDisc(price, discount);
 
              return (
                <View style={[styles.card, {borderColor: cardColor, borderWidth: 2}, (inCart || inMix) && {backgroundColor:'#f9f9f9'}]}>
@@ -888,15 +398,8 @@ export default function App() {
                        {item.periodo_uso && (<Text style={{fontSize:9, color:'#666', marginTop:2}}>⏱ {item.periodo_uso}</Text>)}
                    </TouchableOpacity>
                    <View style={styles.cardRight}>
-                       {hasAccess ? (
-                           <>
-                               <Text style={{fontWeight:'bold', color:THEME.accent, marginBottom:5}}>€ {finalPrice.toFixed(2)}</Text>
-                               <TouchableOpacity onPress={() => toggleMix(item)} style={{marginBottom:10}}><View style={{backgroundColor:inMix?THEME.primary:'#fff', padding:6, borderRadius:8, borderWidth:1, borderColor:inMix?THEME.primary:THEME.secondary}}><Ionicons name={inMix?"flask":"flask-outline"} size={20} color={inMix?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
-                               <TouchableOpacity onPress={() => toggleCart(item)}><View style={{backgroundColor:inCart?THEME.accent:'#fff', padding:6, borderRadius:8, borderWidth:1, borderColor:inCart?THEME.accent:THEME.secondary}}><Ionicons name={inCart?"cart":"cart-outline"} size={20} color={inCart?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
-                           </>
-                       ) : (
-                           <View style={{alignItems:'center', justifyContent:'center'}}><Ionicons name="lock-closed" size={24} color={THEME.iconInactive}/><Text style={{fontSize:9, color:'#999', textAlign:'center', marginTop:2}}>LISTINO{'\n'}RISERVATO</Text></View>
-                       )}
+                       <TouchableOpacity onPress={() => toggleMix(item)} style={{marginBottom:10}}><View style={{backgroundColor:inMix?THEME.primary:'#fff', padding:6, borderRadius:8, borderWidth:1, borderColor:inMix?THEME.primary:THEME.secondary}}><Ionicons name={inMix?"flask":"flask-outline"} size={20} color={inMix?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
+                       <TouchableOpacity onPress={() => toggleCart(item)}><View style={{backgroundColor:inCart?THEME.accent:'#fff', padding:6, borderRadius:8, borderWidth:1, borderColor:inCart?THEME.accent:THEME.secondary}}><Ionicons name={inCart?"cart":"cart-outline"} size={20} color={inCart?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
                    </View>
                </View>
              );
@@ -907,84 +410,8 @@ export default function App() {
       <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingTop: 10, paddingBottom: Platform.OS === 'android' ? 25 : 10, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', elevation: 15, shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 5 }}>
          <TouchableOpacity style={{alignItems:'center'}} onPress={()=>{ setShowSOSModal(true); trackEvent('APERTURA_FARMACIA', 'SOS Button'); }}><View style={{backgroundColor:THEME.danger, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="medkit" size={20} color="#fff"/></View><Text style={{fontSize:10, color:THEME.danger, fontWeight:'bold', marginTop:2}}>SOS</Text></TouchableOpacity>
          {mixItems.length > 0 && (<TouchableOpacity style={{alignItems:'center'}} onPress={()=>setShowMixListModal(true)}><View style={{backgroundColor:THEME.primary, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="flask" size={20} color="#fff"/></View><Text style={{fontSize:10, color:THEME.primary, fontWeight:'bold', marginTop:2}}>MIX ({mixItems.length})</Text></TouchableOpacity>)}
-         <TouchableOpacity style={{alignItems:'center'}} onPress={handlePhotoAction}><View style={{backgroundColor:THEME.ai, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="camera" size={24} color="#fff"/></View><Text style={{fontSize:10, color:THEME.ai, fontWeight:'bold', marginTop:2}}>DIAGNOSI</Text></TouchableOpacity>
          {cartItems.length > 0 && (<TouchableOpacity style={{alignItems:'center'}} onPress={()=>setShowCartModal(true)}><View style={{backgroundColor:THEME.accent, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="cart" size={20} color="#fff"/></View><Text style={{fontSize:10, color:THEME.accent, fontWeight:'bold', marginTop:2}}>ORDINE ({cartItems.length})</Text></TouchableOpacity>)}
       </View>
-
-      {/* --- MODAL AI RESULT --- */}
-      <Modal visible={showAIModal} animationType="slide" transparent onRequestClose={()=>setShowAIModal(false)}>
-          <View style={styles.modalOverlay}>
-              <View style={[styles.modalCard, {padding:20, width:'95%', maxHeight:'85%'}]}>
-                  <View style={{alignItems:'center', marginBottom:10}}>
-                      <Ionicons name="eye" size={32} color={THEME.ai} />
-                      <Text style={{fontSize:18, fontWeight:'bold', color:THEME.ai, marginTop:5}}>DIAGNOSI AI</Text>
-                  </View>
-                  {aiImage && <Image source={{uri: aiImage.uri}} style={{width:120, height:80, borderRadius:10, marginBottom:10, alignSelf:'center'}} />}
-                  {aiAnalyzing ? (
-                      <View style={{alignItems:'center', padding:20}}>
-                          <ActivityIndicator size="large" color={THEME.ai} />
-                          <Text style={{marginTop:15, color:'#666'}}>Sto analizzando...</Text>
-                      </View>
-                  ) : (
-                      <>
-                      <ScrollView style={{marginBottom:10}}>
-                          <Text style={{fontSize:14, lineHeight:20, color:'#333', textAlign:'justify'}}>{aiResult}</Text>
-                          {/* SEZIONE CURA (FARMACI) */}
-                          {aiCurativeProducts.length > 0 && (
-                              <View style={{marginTop:15, borderTopWidth:1, borderColor:'#eee', paddingTop:10}}>
-                                  <Text style={{fontWeight:'bold', color:THEME.danger, marginBottom:5, fontSize:12}}>💊 TERAPIA CURATIVA (FARMACIA)</Text>
-                                  {aiCurativeProducts.map((p, i) => (
-                                      <TouchableOpacity key={i} onPress={()=>{setSelectedProduct(p);}} style={{flexDirection:'row', alignItems:'center', padding:8, backgroundColor:'#FFEBEE', marginBottom:5, borderRadius:8, borderLeftWidth:4, borderColor:THEME.danger}}>
-                                          <View style={{flex:1}}><Text style={{fontWeight:'bold', fontSize:11, color:'#333'}}>{p.nome} <Text style={{fontWeight:'normal', color:'#666', fontSize:10}}>({p.categoria})</Text></Text></View>
-                                          <Ionicons name="arrow-forward-circle" size={20} color={THEME.danger}/>
-                                      </TouchableOpacity>
-                                  ))}
-                              </View>
-                          )}
-                          {/* SEZIONE PREVENZIONE (NUTRIZIONE) */}
-                          {aiPreventiveProducts.length > 0 && (
-                              <View style={{marginTop:15, borderTopWidth:1, borderColor:'#eee', paddingTop:10}}>
-                                  <Text style={{fontWeight:'bold', color:THEME.primary, marginBottom:5, fontSize:12}}>🛡️ PREVENZIONE & RINFORZO</Text>
-                                  {aiPreventiveProducts.map((p, i) => (
-                                      <TouchableOpacity key={i} onPress={()=>{setSelectedProduct(p);}} style={{flexDirection:'row', alignItems:'center', padding:8, backgroundColor:'#E8EAF6', marginBottom:5, borderRadius:8, borderLeftWidth:4, borderColor:THEME.primary}}>
-                                          <View style={{flex:1}}><Text style={{fontWeight:'bold', fontSize:11, color:'#333'}}>{p.nome} <Text style={{fontWeight:'normal', color:'#666', fontSize:10}}>({p.categoria})</Text></Text></View>
-                                          <Ionicons name="arrow-forward-circle" size={20} color={THEME.primary}/>
-                                      </TouchableOpacity>
-                                  ))}
-                              </View>
-                          )}
-                      </ScrollView>
-                      <TouchableOpacity onPress={()=>{setShowAIModal(false); setSosSearch('');}} style={{alignSelf:'center', marginTop:5}}><Text style={{color:'#666', fontSize:12}}>Chiudi</Text></TouchableOpacity>
-                      </>
-                  )}
-              </View>
-          </View>
-      </Modal>
-
-      {/* --- MODAL CONTESTO --- */}
-      <Modal visible={showContextModal} animationType="slide" transparent onRequestClose={()=>setShowContextModal(false)}>
-          <View style={styles.modalOverlay}>
-              <View style={styles.modalCard}>
-                  <Text style={{fontSize:20, fontWeight:'bold', color:THEME.textDark, marginBottom:10}}>Dettagli Foto 📸</Text>
-                  {aiImage && <Image source={{uri: aiImage.uri}} style={{width:150, height:100, borderRadius:10, marginBottom:15}} />}
-                  <Text style={{textAlign:'center', color:'#666', marginBottom:20, fontSize:12}}>Inserisci data e luogo per aiutare l'Agronomo Digitale a capire il clima.</Text>
-                  <View style={styles.inputContainer}>
-                      <Ionicons name="calendar" size={20} color="#666" style={{marginRight:10}}/>
-                      <TextInput style={{flex:1, color:'#333'}} placeholder="YYYY-MM-DD" value={aiContextData.date} onChangeText={t=>setAiContextData({...aiContextData, date:t})}/>
-                  </View>
-                  <View style={styles.inputContainer}>
-                      <Ionicons name="location" size={20} color="#666" style={{marginRight:10}}/>
-                      <TextInput style={{flex:1, color:'#333'}} placeholder="Città (es. Milano)" value={aiContextData.city} onChangeText={t=>setAiContextData({...aiContextData, city:t})}/>
-                  </View>
-                   <View style={styles.inputContainer}>
-                      <Ionicons name="leaf" size={20} color="#666" style={{marginRight:10}}/>
-                      <TextInput style={{flex:1, color:'#333'}} placeholder="Tipo di Pianta (Opzionale)" value={aiContextData.plantType} onChangeText={t=>setAiContextData({...aiContextData, plantType:t})}/>
-                  </View>
-                  <TouchableOpacity style={[styles.btnBig, {marginTop:10}]} onPress={startAnalysis}><Text style={styles.btnText}>ANALIZZA ORA</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={()=>{setShowContextModal(false); setAiImage(null);}} style={{marginTop:15}}><Text style={{color:THEME.danger}}>Annulla</Text></TouchableOpacity>
-              </View>
-          </View>
-      </Modal>
 
       {/* --- MODAL SOS --- */}
       <Modal visible={showSOSModal} animationType="slide" onRequestClose={()=>setShowSOSModal(false)}>
@@ -1033,7 +460,7 @@ export default function App() {
                     <Text style={{fontSize:20, fontWeight:'bold', marginTop:10, marginBottom:10, color:THEME.textDark}}>DISCLAIMER LEGALE</Text>
                     <ScrollView style={{maxHeight: 300, width: '100%'}}>
                         <Text style={{textAlign:'justify', lineHeight: 22, color:'#333', fontSize:14}}>
-                            L'applicazione AgriManager e l'assistente AI forniscono suggerimenti basati su dati generici e immagini fornite dall'utente. Tali indicazioni NON sostituiscono in alcun modo il parere professionale di un tecnico agronomo in loco. {'\n\n'}
+                            L'applicazione TurfManager fornisce suggerimenti e informazioni basate su dati generici. Tali indicazioni NON sostituiscono in alcun modo il parere professionale di un tecnico agronomo in loco. {'\n\n'}
                             L'uso dei prodotti fitosanitari (fungicidi, diserbanti, insetticidi) è regolato dalla legge. L'utente è l'unico responsabile del rispetto delle normative locali, delle dosi di etichetta e dell'uso dei dispositivi di protezione individuale (DPI). {'\n\n'}
                             Sinelica e gli sviluppatori declinano ogni responsabilità per danni a persone, cose, colture o ambiente derivanti dall'uso improprio delle informazioni fornite o dei prodotti suggeriti. Leggere sempre attentamente l'etichetta del prodotto prima dell'uso.
                         </Text>
@@ -1052,7 +479,6 @@ export default function App() {
                 <View style={{backgroundColor: selectedProduct.colore || '#C8E6C9', padding:15, paddingTop:15, paddingBottom:15}}>
                       <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start'}}>
                           <TouchableOpacity onPress={()=>setSelectedProduct(null)} style={{marginBottom:5}}><Ionicons name="close-circle" size={32} color={'rgba(0,0,0,0.5)'}/></TouchableOpacity>
-                          <Text style={{fontSize:20, fontWeight:'900', color:'#fff', textShadowColor:'rgba(0,0,0,0.2)', textShadowRadius:3}}>€ {applyDisc(parseFloat(selectedProduct.prezzo)||0, getDiscount(selectedProduct)).toFixed(2)}</Text>
                       </View>
                       <Text style={{fontSize:22, fontWeight:'bold', color:'#fff', lineHeight:26}}>{selectedProduct.nome}</Text>
                       <Text style={{fontSize:12, fontWeight:'bold', color:'rgba(255,255,255,0.9)', marginTop:2, textTransform:'uppercase'}}>{selectedProduct.marca} • {selectedProduct.categoria}</Text>
@@ -1079,7 +505,7 @@ export default function App() {
                       <View style={[styles.newCalcBox, {marginTop:10, padding:15}]}>
                           <Text style={{textAlign:'center', fontWeight:'bold', color:THEME.textDark, fontSize:10, marginBottom:5}}>MQ DA TRATTARE</Text>
                           <TextInput style={[styles.newCalcInput, {fontSize:20, padding:10, marginBottom:10, width:'60%'}]} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize} onBlur={() => trackEvent('CALCOLO_DOSI', selectedProduct.nome, parseFloat(lawnSize))} />
-                          {lawnSize ? (<>{(() => { const specs = calcSpecs(selectedProduct, lawnSize); return ( <View style={{flexDirection:'row', justifyContent:'space-around', width:'100%'}}>{specs.qRad > 0 && (<View style={{alignItems:'center'}}><Text style={{fontSize:10, color:'#8D6E63', fontWeight:'bold'}}>RADICALE</Text><Text style={[styles.newCalcResult, {fontSize:24, color:'#8D6E63'}]}>{specs.qRad.toFixed(2)} {specs.unit}</Text><Text style={{fontSize:12, color:'#666', fontWeight:'bold'}}>(€ {specs.costRad.toFixed(2)})</Text></View>)}{specs.qFog > 0 && (<View style={{alignItems:'center'}}><Text style={{fontSize:10, color:THEME.textDark, fontWeight:'bold'}}>FOGLIARE</Text><Text style={[styles.newCalcResult, {fontSize:24}]}>{specs.qFog.toFixed(2)} {specs.unit}</Text><Text style={{fontSize:12, color:'#666', fontWeight:'bold'}}>(€ {specs.costFog.toFixed(2)})</Text></View>)}</View>)})()}<Text style={{textAlign:'center', fontSize:9, color:'#777', marginTop:10}}>* Costo stimato</Text></>) : (<Text style={{textAlign:'center', fontSize:20, color:'#ccc', marginVertical:10}}>- {selectedProduct.unita_misura === 'L' || selectedProduct.unita_misura === 'ML' ? 'ml' : 'Kg'}</Text>)}
+                          {lawnSize ? (<>{(() => { const specs = calcSpecs(selectedProduct, lawnSize); return ( <View style={{flexDirection:'row', justifyContent:'space-around', width:'100%'}}>{specs.qRad > 0 && (<View style={{alignItems:'center'}}><Text style={{fontSize:10, color:'#8D6E63', fontWeight:'bold'}}>RADICALE</Text><Text style={[styles.newCalcResult, {fontSize:24, color:'#8D6E63'}]}>{specs.qRad.toFixed(2)} {specs.unit}</Text></View>)}{specs.qFog > 0 && (<View style={{alignItems:'center'}}><Text style={{fontSize:10, color:THEME.textDark, fontWeight:'bold'}}>FOGLIARE</Text><Text style={[styles.newCalcResult, {fontSize:24}]}>{specs.qFog.toFixed(2)} {specs.unit}</Text></View>)}</View>)})()}</>) : (<Text style={{textAlign:'center', fontSize:20, color:'#ccc', marginVertical:10}}>- {selectedProduct.unita_misura === 'L' || selectedProduct.unita_misura === 'ML' ? 'ml' : 'Kg'}</Text>)}
                       </View>
                       <Text style={{fontSize:12, color:'#999', marginTop:15, marginBottom:5}}>DESCRIZIONE TECNICA</Text><Text style={{fontSize:14, color:'#333', lineHeight:22}}>{selectedProduct.descrizione}</Text>
                       <Text style={{fontSize:12, color:'#999', marginTop:15, marginBottom:5}}>COMPOSIZIONE CHIMICA</Text><View style={{backgroundColor:'#F5F5F5', padding:10, borderRadius:10, borderWidth:1, borderColor:'#eee'}}><Text style={{color:'#444', fontStyle:'italic', fontSize:12}}>{selectedProduct.composizione || "Non specificata"}</Text></View>
@@ -1089,10 +515,10 @@ export default function App() {
       </Modal>
 
       {/* Modal Mix AGGIORNATO CON PREZZI DINAMICI E HEADER COMPATTO */}
-      <Modal visible={showMixListModal} animationType="slide" onRequestClose={()=>setShowMixListModal(false)}><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:15}}><Text style={[styles.modalTitle, {color:THEME.primary}]}>Trattamento Tecnico</Text><TouchableOpacity onPress={()=>setShowMixListModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View>{(() => {const hasRadicalOnly = mixItems.some(i => parseFloat(i.dose_radicale) > 0 && parseFloat(i.dose_fogliare) === 0); const hasFoliarOnly = mixItems.some(i => parseFloat(i.dose_fogliare) > 0 && parseFloat(i.dose_radicale) === 0); if (hasRadicalOnly && hasFoliarOnly) {return (<View style={{backgroundColor:'#FFEBEE', padding:10, borderRadius:8, marginBottom:10, flexDirection:'row', alignItems:'center'}}><Ionicons name="warning" size={24} color={THEME.danger} style={{marginRight:10}}/><Text style={{color:THEME.danger, fontSize:12, flex:1, fontWeight:'bold'}}>ATTENZIONE: Stai mischiando prodotti esclusivamente radicali con prodotti esclusivamente fogliari!</Text></View>)}})()}<View style={{backgroundColor:THEME.secondary, padding:10, borderRadius:10, marginBottom:15}}><Text style={{fontSize:12, fontWeight:'bold', color:THEME.primary}}>AREA TOTALE (MQ)</Text><TextInput style={styles.mqInput} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize}/></View><ScrollView>{mixItems.map((p, idx) => { const specs = calcSpecs(p, lawnSize); const totalCost = specs.costRad + specs.costFog; const unitPrice = applyDisc(parseFloat(p.prezzo)||0, getDiscount(p)); return ( <View key={idx} style={styles.cartItem}><View style={{flex:1}}><View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}><Text style={{fontWeight:'bold', color:THEME.primary, flex:1}}>{p.nome}</Text>{lawnSize ? (<Text style={{fontWeight:'bold', color:THEME.accent, fontSize:14, marginRight:10}}>€ {totalCost.toFixed(2)}</Text>) : (<Text style={{fontWeight:'bold', color:'#999', fontSize:12, marginRight:10}}>€ {unitPrice.toFixed(2)} / {p.unita_misura}</Text>)}</View><View style={{marginTop:5}}>{specs.qRad > 0 && (<View style={{flexDirection:'row', alignItems:'center', marginBottom:2}}><View style={{backgroundColor:'#FFF3E0', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#5D4037'}}>RAD</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qRad.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}{specs.qFog > 0 && (<View style={{flexDirection:'row', alignItems:'center'}}><View style={{backgroundColor:'#E8F5E9', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#1B5E20'}}>FOG</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qFog.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}</View></View><View style={{alignItems:'flex-end'}}><TouchableOpacity onPress={()=>toggleMix(p)} style={{marginTop:5}}><Ionicons name="trash-outline" size={20} color={THEME.danger}/></TouchableOpacity></View></View>)})}</ScrollView></View></SafeAreaView></Modal>
+      <Modal visible={showMixListModal} animationType="slide" onRequestClose={()=>setShowMixListModal(false)}><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:15}}><Text style={[styles.modalTitle, {color:THEME.primary}]}>Trattamento Tecnico</Text><TouchableOpacity onPress={()=>setShowMixListModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View>{(() => {const hasRadicalOnly = mixItems.some(i => parseFloat(i.dose_radicale) > 0 && parseFloat(i.dose_fogliare) === 0); const hasFoliarOnly = mixItems.some(i => parseFloat(i.dose_fogliare) > 0 && parseFloat(i.dose_radicale) === 0); if (hasRadicalOnly && hasFoliarOnly) {return (<View style={{backgroundColor:'#FFEBEE', padding:10, borderRadius:8, marginBottom:10, flexDirection:'row', alignItems:'center'}}><Ionicons name="warning" size={24} color={THEME.danger} style={{marginRight:10}}/><Text style={{color:THEME.danger, fontSize:12, flex:1, fontWeight:'bold'}}>ATTENZIONE: Stai mischiando prodotti esclusivamente radicali con prodotti esclusivamente fogliari!</Text></View>)}})()}<View style={{backgroundColor:THEME.secondary, padding:10, borderRadius:10, marginBottom:15}}><Text style={{fontSize:12, fontWeight:'bold', color:THEME.primary}}>AREA TOTALE (MQ)</Text><TextInput style={styles.mqInput} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize}/></View><ScrollView>{mixItems.map((p, idx) => { const specs = calcSpecs(p, lawnSize); return ( <View key={idx} style={styles.cartItem}><View style={{flex:1}}><View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}><Text style={{fontWeight:'bold', color:THEME.primary, flex:1}}>{p.nome}</Text></View><View style={{marginTop:5}}>{specs.qRad > 0 && (<View style={{flexDirection:'row', alignItems:'center', marginBottom:2}}><View style={{backgroundColor:'#FFF3E0', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#5D4037'}}>RAD</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qRad.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}{specs.qFog > 0 && (<View style={{flexDirection:'row', alignItems:'center'}}><View style={{backgroundColor:'#E8F5E9', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#1B5E20'}}>FOG</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qFog.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}</View></View><View style={{alignItems:'flex-end'}}><TouchableOpacity onPress={()=>toggleMix(p)} style={{marginTop:5}}><Ionicons name="trash-outline" size={20} color={THEME.danger}/></TouchableOpacity></View></View>)})}</ScrollView></View></SafeAreaView></Modal>
       
       {/* Modal Carrello AGGIORNATO (NOME CLIENTE + FIX PREZZI) */}
-      <Modal visible={showCartModal} animationType="slide" onRequestClose={()=>setShowCartModal(false)}><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10, alignItems:'center'}}><Text style={[styles.modalTitle, {color:THEME.accent}]}>Preventivo Vendita</Text><TouchableOpacity onPress={()=>setShowCartModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View><TextInput style={{backgroundColor:'#f0f0f0', padding:10, borderRadius:8, marginBottom:15, fontWeight:'bold', color:'#333'}} placeholder="Intestazione Ordine (es. Mario Rossi)" value={customerName} onChangeText={setCustomerName}/><ScrollView>{cartItems.map((p, idx) => { const price = applyDisc(parseFloat(p.prezzo)||0, getDiscount(p)); const qty = parseFloat(p.quantity)||0; const displayUnit = getDisplayUnit(p.unita_misura); return (<View key={idx} style={styles.cartItem}><View style={{flex:1}}><Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:15}}>{p.nome}</Text><Text style={{fontSize:12, color:THEME.primary}}>€ {price.toFixed(2)} cad.</Text></View><View style={{alignItems:'flex-end'}}><View style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:8}}><TextInput style={styles.qtyInput} placeholder="0" keyboardType="numeric" value={p.quantity} onChangeText={(t)=>updateCartQuantity(p.id, t)}/><Text style={{paddingRight:10, fontSize:12, fontWeight:'bold', color:'#666'}}>{displayUnit}</Text></View><Text style={{fontWeight:'bold', marginTop:5, fontSize:15}}>€ {(qty * price).toFixed(2)}</Text><TouchableOpacity onPress={()=>toggleCart(p)} style={{marginTop:5}}><Text style={{color:THEME.danger, fontSize:10}}>Rimuovi</Text></TouchableOpacity></View></View>);})}</ScrollView><View style={{borderTopWidth:1, borderColor:'#eee', paddingTop:15}}><View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}><Text style={{fontSize:16, color:'#666'}}>Totale:</Text><Text style={{fontSize:24, fontWeight:'bold', color:THEME.accent}}>€ {calculateCartTotal().toFixed(2)}</Text></View><TouchableOpacity style={styles.btnBig} onPress={printPDF}><Ionicons name="print-outline" size={24} color="#fff" style={{marginRight:10}}/><Text style={styles.btnText}>STAMPA PDF</Text></TouchableOpacity></View></View></SafeAreaView></Modal>
+      <Modal visible={showCartModal} animationType="slide" onRequestClose={()=>setShowCartModal(false)}><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10, alignItems:'center'}}><Text style={[styles.modalTitle, {color:THEME.accent}]}>Preventivo Vendita</Text><TouchableOpacity onPress={()=>setShowCartModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View><TextInput style={{backgroundColor:'#f0f0f0', padding:10, borderRadius:8, marginBottom:15, fontWeight:'bold', color:'#333'}} placeholder="Intestazione Ordine (es. Mario Rossi)" value={customerName} onChangeText={setCustomerName}/><ScrollView>{cartItems.map((p, idx) => { const qty = parseFloat(p.quantity)||0; const displayUnit = getDisplayUnit(p.unita_misura); return (<View key={idx} style={styles.cartItem}><View style={{flex:1}}><Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:15}}>{p.nome}</Text></View><View style={{alignItems:'flex-end'}}><View style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:8}}><TextInput style={styles.qtyInput} placeholder="0" keyboardType="numeric" value={p.quantity} onChangeText={(t)=>updateCartQuantity(p.id, t)}/><Text style={{paddingRight:10, fontSize:12, fontWeight:'bold', color:'#666'}}>{displayUnit}</Text></View><TouchableOpacity onPress={()=>toggleCart(p)} style={{marginTop:5}}><Text style={{color:THEME.danger, fontSize:10}}>Rimuovi</Text></TouchableOpacity></View></View>);})}</ScrollView><View style={{borderTopWidth:1, borderColor:'#eee', paddingTop:15}}><TouchableOpacity style={styles.btnBig} onPress={printPDF}><Ionicons name="print-outline" size={24} color="#fff" style={{marginRight:10}}/><Text style={styles.btnText}>STAMPA PDF</Text></TouchableOpacity></View></View></SafeAreaView></Modal>
     </SafeAreaView>
   );
 }
