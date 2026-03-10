@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import {
     ActivityIndicator, Alert, BackHandler, FlatList,
     KeyboardAvoidingView, Modal, Platform, SafeAreaView,
-    ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View
+    ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, Image
 } from 'react-native';
 
 // --- CONFIGURAZIONE CHIAVI ---
@@ -47,9 +47,16 @@ const HighlightText = ({ text, term, baseStyle }) => {
 };
 
 const BrandLogo = ({scale = 1}) => (
-  <View style={{alignItems:'center', transform: [{scale}]}}>
-    <Text style={{fontSize:24, fontWeight:'900', color:THEME.textDark}}>TurfManager</Text>
-    <Text style={{fontSize:10, color:THEME.accent, fontWeight:'bold', letterSpacing:1}}>powered by SINELICA</Text>
+  <View style={{flexDirection:'row', alignItems:'center', transform: [{scale}], alignSelf:'flex-start'}}>
+    <Image
+      source={require('./assets/logo.png')}
+      style={{width:44, height:44, marginRight:12, borderRadius:6}}
+      resizeMode="contain"
+    />
+    <View style={{alignItems:'flex-start'}}>
+      <Text style={{fontSize:24, fontWeight:'900', color:THEME.textDark}}>TurfManager</Text>
+      <Text style={{fontSize:10, color:THEME.accent, fontWeight:'bold', letterSpacing:1}}>SINELICA DIGITAL</Text>
+    </View>
   </View>
 );
 
@@ -117,7 +124,6 @@ const getAgronomicAdvice = (weather) => {
 
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
-  const [userRole, setUserRole] = useState(null); 
   const [session, setSession] = useState(null);
 
   // --- BIG DATA & METEO ---
@@ -204,7 +210,6 @@ export default function App() {
       } catch(e) {}
   };
 
-  const handleEnterShop = async () => { setUserRole('CLIENTE'); const hasProfile = await AsyncStorage.getItem('HAS_PROFILE_DATA'); if (!hasProfile) setShowWelcomeModal(true); };
   const saveWelcomeData = async () => {
       if(!welcomeData.citta) return Alert.alert("Manca la città", "Inserisci la tua zona.");
       try {
@@ -270,41 +275,6 @@ export default function App() {
 
   if(!appIsReady) return <View style={styles.center}><ActivityIndicator size="large" color={THEME.accent}/></View>;
 
-  // --- VISTA LOGIN / BENVENUTO ---
-  if(!userRole && !isPendingApproval) return ( 
-    <View style={styles.center}>
-        <View style={{marginBottom:40}}><BrandLogo scale={1.5}/></View>
-        <Modal visible={showWelcomeModal} animationType="slide" transparent onRequestClose={()=>{/* Non chiudere */}}>
-            <View style={styles.modalOverlay}>
-                <View style={styles.modalCard}>
-                    <Ionicons name="leaf-outline" size={50} color={THEME.accent} />
-                    <Text style={{fontSize:22, fontWeight:'bold', color:THEME.textDark, marginTop:10, marginBottom:5}}>Benvenuto in TurfManager!</Text>
-                    <Text style={{textAlign:'center', color:'#666', marginBottom:20}}>Per aiutarti al meglio con le dosi e il meteo, dicci chi sei.</Text>
-                    <View style={{flexDirection:'row', gap:10, marginBottom:15, width:'100%'}}>
-                        <TouchableOpacity onPress={()=>setWelcomeData({...welcomeData, tipo: 'HOBBISTA'})} style={{flex:1, padding:15, borderRadius:10, borderWidth:2, borderColor: welcomeData.tipo==='HOBBISTA'?THEME.accent:'#eee', backgroundColor: welcomeData.tipo==='HOBBISTA'?'#E8F5E9':'#fff', alignItems:'center'}}>
-                            <Ionicons name="home-outline" size={24} color={welcomeData.tipo==='HOBBISTA'?THEME.accent:'#999'}/>
-                            <Text style={{fontWeight:'bold', marginTop:5, color:welcomeData.tipo==='HOBBISTA'?THEME.textDark:'#999'}}>HOBBISTA</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={()=>setWelcomeData({...welcomeData, tipo: 'GIARDINIERE'})} style={{flex:1, padding:15, borderRadius:10, borderWidth:2, borderColor: welcomeData.tipo==='GIARDINIERE'?THEME.primary:'#eee', backgroundColor: welcomeData.tipo==='GIARDINIERE'?'#E8EAF6':'#fff', alignItems:'center'}}>
-                            <Ionicons name="construct-outline" size={24} color={welcomeData.tipo==='GIARDINIERE'?THEME.primary:'#999'}/>
-                            <Text style={{fontWeight:'bold', marginTop:5, color:welcomeData.tipo==='GIARDINIERE'?THEME.primary:'#999'}}>GIARDINIERE</Text>
-                        </TouchableOpacity>
-                    </View>
-                    <TextInput style={[styles.inputContainer, {backgroundColor:'#fff'}]} placeholder="La tua Città o CAP (es. Milano)" value={welcomeData.citta} onChangeText={t=>setWelcomeData({...welcomeData, citta:t})}/>
-                    {welcomeData.tipo === 'HOBBISTA' && (<TextInput style={[styles.inputContainer, {backgroundColor:'#fff'}]} placeholder="Grandezza Prato (MQ)" keyboardType="numeric" value={welcomeData.mq} onChangeText={t=>setWelcomeData({...welcomeData, mq:t})}/>)}
-                    <TouchableOpacity style={[styles.btnBig, {marginTop:10}]} onPress={saveWelcomeData}>
-                        <Text style={styles.btnText}>INIZIA ORA</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-        </Modal>
-        <TouchableOpacity style={styles.btnBig} onPress={handleEnterShop}>
-            <Text style={styles.btnText}>ENTRA NELLO SHOP</Text>
-            <Ionicons name="cart-outline" size={24} color="#fff" style={{marginLeft:10}}/>
-        </TouchableOpacity>
-    </View> 
-  );
-
   // --- UI: SHOP CLIENTI (PRINCIPALE) ---
   return (
     <SafeAreaView style={{flex:1, backgroundColor:THEME.bg, paddingTop: Platform.OS==='android'?StatusBar.currentHeight:0}}>
@@ -312,12 +282,17 @@ export default function App() {
 
       <View style={styles.header}>
          <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
-             <TouchableOpacity onPress={()=>setUserRole(null)}><Ionicons name="arrow-back" size={24} color={THEME.textDark}/></TouchableOpacity>
              <BrandLogo/>
              <View style={{flexDirection:'row', alignItems:'center', gap:15}}>
-                 <TouchableOpacity onPress={()=>setShowSettingsModal(true)}><Ionicons name="settings-outline" size={22} color={THEME.textDark}/></TouchableOpacity>
+                 <TouchableOpacity onPress={()=>setShowFavModal(true)}>
+                     <Ionicons name="heart" size={22} color="#333333"/>
+                 </TouchableOpacity>
+                 <TouchableOpacity onPress={()=>{ setShowSOSModal(true); trackEvent('APERTURA_FARMACIA', 'Header Fitofarmaci'); }}>
+                     <Ionicons name="medkit" size={22} color="#333333"/>
+                 </TouchableOpacity>
+                 <TouchableOpacity onPress={()=>setShowSettingsModal(true)}><Ionicons name="settings-outline" size={22} color="#333333"/></TouchableOpacity>
                  <TouchableOpacity onPress={()=>setShowDisclaimerModal(true)}>
-                     <Ionicons name="alert-circle-outline" size={28} color={THEME.textDark}/>
+                     <Ionicons name="alert-circle-outline" size={28} color="#333333"/>
                  </TouchableOpacity>
              </View>
          </View>
@@ -351,13 +326,38 @@ export default function App() {
              <TextInput style={[styles.searchInput, {fontSize:14}]} placeholder="Cerca prodotto..." value={search} onChangeText={(t) => { setSearch(t); if(t.length > 3) trackEvent('RICERCA', t); }}/>
          </View>
          
-         <View style={{marginTop:10}}>
+        <View style={{marginTop:10}}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <TouchableOpacity onPress={()=>setShowFavModal(true)} style={[styles.chip, {backgroundColor:'#FFEBEE', flexDirection:'row', alignItems:'center'}]}>
-                    <Ionicons name="heart" size={16} color={THEME.danger} style={{marginRight:4}}/>
-                    <Text style={[styles.chipText, {color:THEME.danger}]}>PREFERITI</Text>
+                {[
+                  'TUTTI',
+                  ...new Set(
+                    productsDB
+                      .filter(p => {
+                        if (!p.marca) return false;
+                        if (!p.categoria || isPharmacyCategory(p.categoria)) return false;
+                        if (selectedCategory !== 'TUTTI' && p.categoria.toUpperCase() !== selectedCategory) return false;
+                        return true;
+                      })
+                      .map(p => p.marca)
+                  )
+                 ].map(b => (
+                  <TouchableOpacity
+                    key={b}
+                    onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')}
+                    style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}
+                  >
+                    <Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>
+                      {b}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  onPress={()=>{ setShowSOSModal(true); trackEvent('APERTURA_FARMACIA', 'Filtro Fitofarmaci'); }}
+                  style={[styles.chip, {backgroundColor:'#FFEBEE', flexDirection:'row', alignItems:'center'}]}
+                >
+                    <Ionicons name="medkit" size={16} color={THEME.danger} style={{marginRight:4}}/>
+                    <Text style={[styles.chipText, {color:THEME.danger}]}>FITOFARMACI</Text>
                 </TouchableOpacity>
-                {['TUTTI', ...new Set(productsDB.map(i=>i.marca).filter(x=>x))].map(b => (<TouchableOpacity key={b} onPress={()=>setSelectedBrand(b?b.toUpperCase():'TUTTI')} style={[styles.chip, selectedBrand===(b?b.toUpperCase():'TUTTI') && {backgroundColor:THEME.textDark}]}><Text style={[styles.chipText, selectedBrand===(b?b.toUpperCase():'TUTTI') && {color:'#fff'}]}>{b}</Text></TouchableOpacity>))}
             </ScrollView>
          </View>
          <View style={{marginTop:5}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['TUTTI', ...new Set(productsDB.map(i=>i.categoria).filter(c => c && !isPharmacyCategory(c)))].map(c => (<TouchableOpacity key={c} onPress={()=>setSelectedCategory(c?c.toUpperCase():'TUTTI')} style={[styles.chipSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {backgroundColor:THEME.accent, borderColor:THEME.accent}]}><Text style={[styles.chipTextSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {color:'#fff'}]}>{c}</Text></TouchableOpacity>))}</ScrollView></View>
@@ -407,10 +407,9 @@ export default function App() {
       />
       
       {/* --- BOTTOM BAR --- */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingTop: 10, paddingBottom: Platform.OS === 'android' ? 25 : 10, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', elevation: 15, shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 5 }}>
-         <TouchableOpacity style={{alignItems:'center'}} onPress={()=>{ setShowSOSModal(true); trackEvent('APERTURA_FARMACIA', 'SOS Button'); }}><View style={{backgroundColor:THEME.danger, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="medkit" size={20} color="#fff"/></View><Text style={{fontSize:10, color:THEME.danger, fontWeight:'bold', marginTop:2}}>SOS</Text></TouchableOpacity>
-         {mixItems.length > 0 && (<TouchableOpacity style={{alignItems:'center'}} onPress={()=>setShowMixListModal(true)}><View style={{backgroundColor:THEME.primary, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="flask" size={20} color="#fff"/></View><Text style={{fontSize:10, color:THEME.primary, fontWeight:'bold', marginTop:2}}>MIX ({mixItems.length})</Text></TouchableOpacity>)}
-         {cartItems.length > 0 && (<TouchableOpacity style={{alignItems:'center'}} onPress={()=>setShowCartModal(true)}><View style={{backgroundColor:THEME.accent, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="cart" size={20} color="#fff"/></View><Text style={{fontSize:10, color:THEME.accent, fontWeight:'bold', marginTop:2}}>ORDINE ({cartItems.length})</Text></TouchableOpacity>)}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 10, paddingBottom: Platform.OS === 'android' ? 25 : 10, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', elevation: 15, shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 5 }}>
+         {mixItems.length > 0 && (<TouchableOpacity style={{alignItems:'center', marginHorizontal:20}} onPress={()=>setShowMixListModal(true)}><View style={{backgroundColor:THEME.primary, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="flask" size={20} color="#fff"/></View><Text style={{fontSize:10, color:THEME.primary, fontWeight:'bold', marginTop:2}}>MIX ({mixItems.length})</Text></TouchableOpacity>)}
+         {cartItems.length > 0 && (<TouchableOpacity style={{alignItems:'center', marginHorizontal:20}} onPress={()=>setShowCartModal(true)}><View style={{backgroundColor:THEME.accent, width:40, height:40, borderRadius:20, alignItems:'center', justifyContent:'center'}}><Ionicons name="cart" size={20} color="#fff"/></View><Text style={{fontSize:10, color:THEME.accent, fontWeight:'bold', marginTop:2}}>ORDINE ({cartItems.length})</Text></TouchableOpacity>)}
       </View>
 
       {/* --- MODAL SOS --- */}
@@ -439,15 +438,22 @@ export default function App() {
             <View style={styles.modalOverlay}>
                 <View style={styles.modalCard}>
                     <Ionicons name="settings-outline" size={40} color={THEME.textDark} />
-                    <Text style={{fontSize:22, fontWeight:'bold', color:THEME.textDark, marginTop:10, marginBottom:20}}>Modifica Profilo</Text>
-                    <View style={{flexDirection:'row', gap:10, marginBottom:15, width:'100%'}}>
-                        <TouchableOpacity onPress={()=>setWelcomeData({...welcomeData, tipo: 'HOBBISTA'})} style={{flex:1, padding:15, borderRadius:10, borderWidth:2, borderColor: welcomeData.tipo==='HOBBISTA'?THEME.accent:'#eee', backgroundColor: welcomeData.tipo==='HOBBISTA'?'#E8F5E9':'#fff', alignItems:'center'}}><Ionicons name="home-outline" size={24} color={welcomeData.tipo==='HOBBISTA'?THEME.accent:'#999'}/><Text style={{fontWeight:'bold', marginTop:5, color:welcomeData.tipo==='HOBBISTA'?THEME.textDark:'#999'}}>HOBBISTA</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={()=>setWelcomeData({...welcomeData, tipo: 'GIARDINIERE'})} style={{flex:1, padding:15, borderRadius:10, borderWidth:2, borderColor: welcomeData.tipo==='GIARDINIERE'?THEME.primary:'#eee', backgroundColor: welcomeData.tipo==='GIARDINIERE'?'#E8EAF6':'#fff', alignItems:'center'}}><Ionicons name="construct-outline" size={24} color={welcomeData.tipo==='GIARDINIERE'?THEME.primary:'#999'}/><Text style={{fontWeight:'bold', marginTop:5, color:welcomeData.tipo==='GIARDINIERE'?THEME.primary:'#999'}}>GIARDINIERE</Text></TouchableOpacity>
-                    </View>
-                    <TextInput style={[styles.inputContainer, {backgroundColor:'#fff'}]} placeholder="Città o CAP" value={welcomeData.citta} onChangeText={t=>setWelcomeData({...welcomeData, citta:t})}/>
-                    {welcomeData.tipo === 'HOBBISTA' && (<TextInput style={[styles.inputContainer, {backgroundColor:'#fff'}]} placeholder="MQ Prato" keyboardType="numeric" value={welcomeData.mq} onChangeText={t=>setWelcomeData({...welcomeData, mq:t})}/>)}
-                    <TouchableOpacity style={[styles.btnBig, {marginTop:10}]} onPress={handleUpdateProfile}><Text style={styles.btnText}>SALVA MODIFICHE</Text></TouchableOpacity>
-                    <TouchableOpacity onPress={()=>setShowSettingsModal(false)} style={{marginTop:15}}><Text style={{color:THEME.danger}}>Annulla</Text></TouchableOpacity>
+                    <Text style={{fontSize:22, fontWeight:'bold', color:THEME.textDark, marginTop:10, marginBottom:20}}>Impostazioni meteo</Text>
+                    <Text style={{fontSize:13, color:'#666', marginBottom:10, textAlign:'center'}}>
+                        Inserisci la tua città o CAP per aggiornare il meteo agronomico.
+                    </Text>
+                    <TextInput
+                      style={[styles.inputContainer, {backgroundColor:'#fff'}]}
+                      placeholder="Città o CAP"
+                      value={welcomeData.citta}
+                      onChangeText={t=>setWelcomeData({...welcomeData, citta:t})}
+                    />
+                    <TouchableOpacity style={[styles.btnBig, {marginTop:10}]} onPress={handleUpdateProfile}>
+                      <Text style={styles.btnText}>AGGIORNA METEO</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={()=>setShowSettingsModal(false)} style={{marginTop:15}}>
+                      <Text style={{color:THEME.danger}}>Chiudi</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
       </Modal>
@@ -517,8 +523,8 @@ export default function App() {
       {/* Modal Mix AGGIORNATO CON PREZZI DINAMICI E HEADER COMPATTO */}
       <Modal visible={showMixListModal} animationType="slide" onRequestClose={()=>setShowMixListModal(false)}><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:15}}><Text style={[styles.modalTitle, {color:THEME.primary}]}>Trattamento Tecnico</Text><TouchableOpacity onPress={()=>setShowMixListModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View>{(() => {const hasRadicalOnly = mixItems.some(i => parseFloat(i.dose_radicale) > 0 && parseFloat(i.dose_fogliare) === 0); const hasFoliarOnly = mixItems.some(i => parseFloat(i.dose_fogliare) > 0 && parseFloat(i.dose_radicale) === 0); if (hasRadicalOnly && hasFoliarOnly) {return (<View style={{backgroundColor:'#FFEBEE', padding:10, borderRadius:8, marginBottom:10, flexDirection:'row', alignItems:'center'}}><Ionicons name="warning" size={24} color={THEME.danger} style={{marginRight:10}}/><Text style={{color:THEME.danger, fontSize:12, flex:1, fontWeight:'bold'}}>ATTENZIONE: Stai mischiando prodotti esclusivamente radicali con prodotti esclusivamente fogliari!</Text></View>)}})()}<View style={{backgroundColor:THEME.secondary, padding:10, borderRadius:10, marginBottom:15}}><Text style={{fontSize:12, fontWeight:'bold', color:THEME.primary}}>AREA TOTALE (MQ)</Text><TextInput style={styles.mqInput} placeholder="0" keyboardType="numeric" value={lawnSize} onChangeText={updateLawnSize}/></View><ScrollView>{mixItems.map((p, idx) => { const specs = calcSpecs(p, lawnSize); return ( <View key={idx} style={styles.cartItem}><View style={{flex:1}}><View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}><Text style={{fontWeight:'bold', color:THEME.primary, flex:1}}>{p.nome}</Text></View><View style={{marginTop:5}}>{specs.qRad > 0 && (<View style={{flexDirection:'row', alignItems:'center', marginBottom:2}}><View style={{backgroundColor:'#FFF3E0', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#5D4037'}}>RAD</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qRad.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}{specs.qFog > 0 && (<View style={{flexDirection:'row', alignItems:'center'}}><View style={{backgroundColor:'#E8F5E9', paddingHorizontal:6, paddingVertical:2, borderRadius:4, marginRight:5}}><Text style={{fontSize:10, color:'#1B5E20'}}>FOG</Text></View>{lawnSize ? <Text style={{fontWeight:'bold', color:'#333'}}>{specs.qFog.toFixed(2)} {specs.unit}</Text> : <Text style={{color:'#999'}}>-</Text>}</View>)}</View></View><View style={{alignItems:'flex-end'}}><TouchableOpacity onPress={()=>toggleMix(p)} style={{marginTop:5}}><Ionicons name="trash-outline" size={20} color={THEME.danger}/></TouchableOpacity></View></View>)})}</ScrollView></View></SafeAreaView></Modal>
       
-      {/* Modal Carrello AGGIORNATO (NOME CLIENTE + FIX PREZZI) */}
-      <Modal visible={showCartModal} animationType="slide" onRequestClose={()=>setShowCartModal(false)}><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10, alignItems:'center'}}><Text style={[styles.modalTitle, {color:THEME.accent}]}>Preventivo Vendita</Text><TouchableOpacity onPress={()=>setShowCartModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View><TextInput style={{backgroundColor:'#f0f0f0', padding:10, borderRadius:8, marginBottom:15, fontWeight:'bold', color:'#333'}} placeholder="Intestazione Ordine (es. Mario Rossi)" value={customerName} onChangeText={setCustomerName}/><ScrollView>{cartItems.map((p, idx) => { const qty = parseFloat(p.quantity)||0; const displayUnit = getDisplayUnit(p.unita_misura); return (<View key={idx} style={styles.cartItem}><View style={{flex:1}}><Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:15}}>{p.nome}</Text></View><View style={{alignItems:'flex-end'}}><View style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:8}}><TextInput style={styles.qtyInput} placeholder="0" keyboardType="numeric" value={p.quantity} onChangeText={(t)=>updateCartQuantity(p.id, t)}/><Text style={{paddingRight:10, fontSize:12, fontWeight:'bold', color:'#666'}}>{displayUnit}</Text></View><TouchableOpacity onPress={()=>toggleCart(p)} style={{marginTop:5}}><Text style={{color:THEME.danger, fontSize:10}}>Rimuovi</Text></TouchableOpacity></View></View>);})}</ScrollView><View style={{borderTopWidth:1, borderColor:'#eee', paddingTop:15}}><TouchableOpacity style={styles.btnBig} onPress={printPDF}><Ionicons name="print-outline" size={24} color="#fff" style={{marginRight:10}}/><Text style={styles.btnText}>STAMPA PDF</Text></TouchableOpacity></View></View></SafeAreaView></Modal>
+      {/* Modal Carrello AGGIORNATO (Ordine prodotti) */}
+      <Modal visible={showCartModal} animationType="slide" onRequestClose={()=>setShowCartModal(false)}><SafeAreaView style={{flex:1, backgroundColor:'#fff'}}><View style={{flex:1, padding:20}}><View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10, alignItems:'center'}}><Text style={[styles.modalTitle, {color:THEME.accent}]}>Ordine prodotti</Text><TouchableOpacity onPress={()=>setShowCartModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View><TextInput style={{backgroundColor:'#f0f0f0', padding:10, borderRadius:8, marginBottom:15, fontWeight:'bold', color:'#333'}} placeholder="Intestazione Ordine (es. Mario Rossi)" value={customerName} onChangeText={setCustomerName}/><ScrollView>{cartItems.map((p, idx) => { const qty = parseFloat(p.quantity)||0; const displayUnit = getDisplayUnit(p.unita_misura); return (<View key={idx} style={styles.cartItem}><View style={{flex:1}}><Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:15}}>{p.nome}</Text></View><View style={{alignItems:'flex-end'}}><View style={{flexDirection:'row', alignItems:'center', backgroundColor:THEME.secondary, borderRadius:8}}><TextInput style={styles.qtyInput} placeholder="0" keyboardType="numeric" value={p.quantity} onChangeText={(t)=>updateCartQuantity(p.id, t)}/><Text style={{paddingRight:10, fontSize:12, fontWeight:'bold', color:'#666'}}>{displayUnit}</Text></View><TouchableOpacity onPress={()=>toggleCart(p)} style={{marginTop:5}}><Text style={{color:THEME.danger, fontSize:10}}>Rimuovi</Text></TouchableOpacity></View></View>);})}</ScrollView><View style={{borderTopWidth:1, borderColor:'#eee', paddingTop:15}}><TouchableOpacity style={styles.btnBig} onPress={printPDF}><Ionicons name="print-outline" size={24} color="#fff" style={{marginRight:10}}/><Text style={styles.btnText}>INVIA PDF</Text></TouchableOpacity></View></View></SafeAreaView></Modal>
     </SafeAreaView>
   );
 }
