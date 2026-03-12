@@ -71,6 +71,8 @@ const getCategoryColor = (categoria) => {
     return '#607D8B';
 };
 
+const getProductColor = (product) => (product && product.colore) ? product.colore : getCategoryColor(product?.categoria);
+
 const shouldShowBrand = (categoria) => {
     if (!categoria) return true;
     const c = categoria.toUpperCase();
@@ -83,10 +85,23 @@ const getCleanCategoryName = (categoria) => {
     return categoria; 
 };
 
+const PHARMACY_BRANDS = ['FITOFARMACI'];
+
+const isPharmacyBrand = (brand) => {
+    if (!brand) return false;
+    const b = String(brand).toUpperCase().trim();
+    return PHARMACY_BRANDS.includes(b);
+};
+
 const isPharmacyCategory = (cat) => {
     if(!cat) return false;
     const c = cat.toUpperCase();
     return c.includes('FUNGICIDA') || c.includes('DISERBANTE') || c.includes('INSETTICIDA') || c.includes('PFNPE');
+};
+
+const isPharmacyProduct = (p) => {
+    if (!p) return false;
+    return isPharmacyCategory(p.categoria) || isPharmacyBrand(p.marca);
 };
 
 const getDisplayUnit = (unit) => {
@@ -95,6 +110,22 @@ const getDisplayUnit = (unit) => {
     if(u === 'ml' || u === 'l' || u === 'lt') return 'L';
     if(u === 'g' || u === 'kg') return 'Kg';
     return unit;
+};
+
+const IT_MONTHS = [
+  'Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno',
+  'Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'
+];
+
+const isCurrentMonthAllowed = (periodo_uso) => {
+    if (!periodo_uso) return false;
+    const now = new Date();
+    const currentMonthName = IT_MONTHS[now.getMonth()];
+    if (Array.isArray(periodo_uso)) {
+        return periodo_uso.includes(currentMonthName);
+    }
+    const text = String(periodo_uso);
+    return text.includes(currentMonthName);
 };
 
 // --- LOGICA METEO AGRONOMICO ---
@@ -143,7 +174,7 @@ export default function App() {
   const [mixItems, setMixItems] = useState([]); 
   const [showMixListModal, setShowMixListModal] = useState(false);
   const [customerName, setCustomerName] = useState(''); 
-   
+  
   const [showSOSModal, setShowSOSModal] = useState(false);
   const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
   const [sosSearch, setSosSearch] = useState('');
@@ -243,7 +274,7 @@ export default function App() {
       return { qty, count };
   };
   const loadCommonData = async () => {
-      const { data } = await supabase.from('Prodotti').select('*').order('marca').order('nome');
+      const { data } = await supabase.from('prodotti_turfmanager').select('*').order('marca').order('nome');
       if(data) setProductsDB(data);
       const savedSize = await AsyncStorage.getItem('LAWN_SIZE');
       if(savedSize) setLawnSize(savedSize);
@@ -287,9 +318,6 @@ export default function App() {
                  <TouchableOpacity onPress={()=>setShowFavModal(true)}>
                      <Ionicons name="heart" size={22} color="#333333"/>
                  </TouchableOpacity>
-                 <TouchableOpacity onPress={()=>{ setShowSOSModal(true); trackEvent('APERTURA_FARMACIA', 'Header Fitofarmaci'); }}>
-                     <Ionicons name="medkit" size={22} color="#333333"/>
-                 </TouchableOpacity>
                  <TouchableOpacity onPress={()=>setShowSettingsModal(true)}><Ionicons name="settings-outline" size={22} color="#333333"/></TouchableOpacity>
                  <TouchableOpacity onPress={()=>setShowDisclaimerModal(true)}>
                      <Ionicons name="alert-circle-outline" size={28} color="#333333"/>
@@ -304,8 +332,8 @@ export default function App() {
                          {weatherData.weather[0].main === 'Rain' ? <Ionicons name="rainy" size={24} color="#4FC3F7"/> :
                           weatherData.weather[0].main === 'Clouds' ? <Ionicons name="cloud" size={24} color="#B0BEC5"/> :
                           <Ionicons name="sunny" size={24} color="#FFB300"/>}
-                         <View style={{marginLeft:10}}>
-                             <Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:10}}>METEO {weatherData.name.toUpperCase()}</Text>
+                        <View style={{marginLeft:10}}>
+                            <Text style={{fontWeight:'bold', color:THEME.textDark, fontSize:10}}>METEO {weatherData.name.toUpperCase()}</Text>
                              <Text style={{fontSize:16, fontWeight:'900', color:'#333'}}>{Math.round(weatherData.main.temp)}°C</Text>
                          </View>
                      </View>
@@ -323,7 +351,7 @@ export default function App() {
 
          <View style={[styles.searchBox, {height:40}]}>
              <Ionicons name="search" size={18} color="#666"/>
-             <TextInput style={[styles.searchInput, {fontSize:14}]} placeholder="Cerca prodotto..." value={search} onChangeText={(t) => { setSearch(t); if(t.length > 3) trackEvent('RICERCA', t); }}/>
+            <TextInput style={[styles.searchInput, {fontSize:14}]} placeholder="Cerca prodotto..." value={search} onChangeText={(t) => { setSearch(t); if(t.length > 3) trackEvent('RICERCA', t); }}/>
          </View>
          
         <View style={{marginTop:10}}>
@@ -331,10 +359,10 @@ export default function App() {
                 {[
                   'TUTTI',
                   ...new Set(
-                    productsDB
+                  productsDB
                       .filter(p => {
                         if (!p.marca) return false;
-                        if (!p.categoria || isPharmacyCategory(p.categoria)) return false;
+                        if (!p.categoria || isPharmacyProduct(p)) return false;
                         if (selectedCategory !== 'TUTTI' && p.categoria.toUpperCase() !== selectedCategory) return false;
                         return true;
                       })
@@ -360,12 +388,38 @@ export default function App() {
                 </TouchableOpacity>
             </ScrollView>
          </View>
-         <View style={{marginTop:5}}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['TUTTI', ...new Set(productsDB.map(i=>i.categoria).filter(c => c && !isPharmacyCategory(c)))].map(c => (<TouchableOpacity key={c} onPress={()=>setSelectedCategory(c?c.toUpperCase():'TUTTI')} style={[styles.chipSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {backgroundColor:THEME.accent, borderColor:THEME.accent}]}><Text style={[styles.chipTextSmall, selectedCategory===(c?c.toUpperCase():'TUTTI') && {color:'#fff'}]}>{c}</Text></TouchableOpacity>))}</ScrollView></View>
+         <View style={{marginTop:5}}>
+           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+             {['TUTTI',
+               ...new Set(
+                 productsDB
+                   .filter(p => p.categoria && !isPharmacyProduct(p))
+                   .map(p => p.categoria)
+               )
+             ].map(c => (
+               <TouchableOpacity
+                 key={c}
+                 onPress={()=>setSelectedCategory(c?c.toUpperCase():'TUTTI')}
+                 style={[
+                   styles.chipSmall,
+                   selectedCategory===(c?c.toUpperCase():'TUTTI') && {backgroundColor:THEME.accent, borderColor:THEME.accent}
+                 ]}>
+                 <Text
+                   style={[
+                     styles.chipTextSmall,
+                     selectedCategory===(c?c.toUpperCase():'TUTTI') && {color:'#fff'}
+                   ]}>
+                   {c}
+                 </Text>
+               </TouchableOpacity>
+             ))}
+           </ScrollView>
+         </View>
       </View>
       <FlatList 
-         data={productsDB
-             .filter(p => {
-                 if (isPharmacyCategory(p.categoria) && !search && selectedCategory !== 'SOS FARMACIA') return false;
+        data={productsDB
+            .filter(p => {
+                if (isPharmacyProduct(p) && !search && selectedCategory !== 'SOS FARMACIA') return false;
                  if (search && getSearchScore(p, search).count === 0) return false;
                  if (selectedBrand !== 'TUTTI' && p.marca.toUpperCase() !== selectedBrand.toUpperCase()) return false;
                  if (selectedCategory !== 'TUTTI' && p.categoria.toUpperCase() !== selectedCategory) return false;
@@ -385,7 +439,7 @@ export default function App() {
              const isFav = favorites.includes(item.id);
              const inCart = cartItems.some(p=>p.id===item.id);
              const inMix = mixItems.some(p=>p.id===item.id);
-             const cardColor = getCategoryColor(item.categoria);
+             const cardColor = getProductColor(item);
              const showBrand = shouldShowBrand(item.categoria);
 
              return (
@@ -393,9 +447,21 @@ export default function App() {
                    <TouchableOpacity style={styles.cardLeft} onPress={()=>toggleFavorite(item.id)}><Ionicons name={isFav?"heart":"heart-outline"} size={26} color={isFav?THEME.danger:THEME.iconInactive}/></TouchableOpacity>
                    <TouchableOpacity style={styles.cardCenter} onPress={()=>{setSelectedProduct(item); trackEvent('VISUALIZZA_PRODOTTO', item.nome); }}>
                        {showBrand && <HighlightText baseStyle={styles.cardBrand} text={item.marca} term={search} />}
-                       <HighlightText baseStyle={styles.cardTitle} text={item.nome} term={search} />
+                      <HighlightText baseStyle={styles.cardTitle} text={item.nome} term={search} />
                        <HighlightText baseStyle={[styles.cardSub, {color: cardColor, fontWeight:'bold'}]} text={getCleanCategoryName(item.categoria)} term={search} />
-                       {item.periodo_uso && (<Text style={{fontSize:9, color:'#666', marginTop:2}}>⏱ {item.periodo_uso}</Text>)}
+                       {item.periodo_uso && (
+                         <View style={{marginTop:4}}>
+                           <Text style={{fontSize:9, color:'#666'}}>⏱ {Array.isArray(item.periodo_uso) ? item.periodo_uso.join(', ') : item.periodo_uso}</Text>
+                           {isCurrentMonthAllowed(item.periodo_uso) && (
+                             <View style={{marginTop:3, alignSelf:'flex-start', paddingHorizontal:6, paddingVertical:2, borderRadius:6, backgroundColor:'rgba(0,200,83,0.12)', flexDirection:'row', alignItems:'center'}}>
+                               <Ionicons name="checkmark-circle" size={12} color={THEME.accent} style={{marginRight:4}}/>
+                               <Text style={{fontSize:10, color:THEME.accent, fontWeight:'bold'}}>
+                                 PERIODO CORRETTO PER L'UTILIZZO
+                               </Text>
+                             </View>
+                           )}
+                         </View>
+                       )}
                    </TouchableOpacity>
                    <View style={styles.cardRight}>
                        <TouchableOpacity onPress={() => toggleMix(item)} style={{marginBottom:10}}><View style={{backgroundColor:inMix?THEME.primary:'#fff', padding:6, borderRadius:8, borderWidth:1, borderColor:inMix?THEME.primary:THEME.secondary}}><Ionicons name={inMix?"flask":"flask-outline"} size={20} color={inMix?"#fff":THEME.iconInactive}/></View></TouchableOpacity>
@@ -421,7 +487,59 @@ export default function App() {
               </View>
               <View style={{padding:10, backgroundColor:THEME.danger}}><View style={[styles.searchBox, {backgroundColor:'#fff', marginBottom:0}]}><Ionicons name="search" size={20} color="#666"/><TextInput style={styles.searchInput} placeholder="Cerca fungicida, diserbante..." value={sosSearch} onChangeText={(t) => { setSosSearch(t); if(t.length > 3) trackEvent('RICERCA_FARMACIA', t); }}/></View></View>
               <View style={{padding:15, backgroundColor:'#FFEBEE'}}><Text style={{color:THEME.danger, fontSize:12, fontWeight:'bold', textAlign:'center'}}>⚠️ ATTENZIONE: Questi prodotti richiedono cautela. Usa le dosi indicate e consulta le schede di sicurezza.</Text></View>
-              <FlatList contentContainerStyle={{padding:15}} data={productsDB.filter(p => { if (!['FUNGICIDA','DISERBANTE','INSETTICIDA','FUNGICIDA BIO','DISERBANTE PFnPE', 'INSETTICIDA PFnPE'].includes(p.categoria.toUpperCase())) return false; if (sosSearch && getSearchScore(p, sosSearch).count === 0) return false; return true; }).sort((a, b) => { if (!sosSearch) return 0; const scoreA = getSearchScore(a, sosSearch); const scoreB = getSearchScore(b, sosSearch); if (scoreA.qty !== scoreB.qty) return scoreB.qty - scoreA.qty; return scoreB.count - scoreA.count; })} keyExtractor={i => i.id.toString()} renderItem={({item}) => ( <TouchableOpacity onPress={()=>{setSelectedProduct(item); trackEvent('VISUALIZZA_FARMACO', item.nome); }} style={{flexDirection:'row', backgroundColor:'#fff', marginBottom:15, borderRadius:12, shadowColor:'#000', shadowOpacity:0.1, elevation:3, borderLeftWidth:6, borderColor:item.colore}}><View style={{padding:20, flex:1}}><View style={{flexDirection:'row', justifyContent:'space-between'}}><Text style={{fontSize:10, fontWeight:'bold', color:item.colore}}>{getCleanCategoryName(item.categoria)}</Text></View><HighlightText baseStyle={{fontSize:18, fontWeight:'bold', color:'#333', marginVertical:5}} text={item.nome} term={sosSearch} /><HighlightText baseStyle={{fontSize:12, color:'#666'}} text={item.descrizione} term={sosSearch} /></View><View style={{justifyContent:'center', paddingRight:20}}><Ionicons name="chevron-forward" size={24} color="#ccc"/></View></TouchableOpacity> )} />
+              <FlatList
+                contentContainerStyle={{padding:15}}
+                data={productsDB
+                  .filter(p => {
+                    if (!isPharmacyProduct(p)) return false;
+                    if (sosSearch && getSearchScore(p, sosSearch).count === 0) return false;
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    if (!sosSearch) return 0;
+                    const scoreA = getSearchScore(a, sosSearch);
+                    const scoreB = getSearchScore(b, sosSearch);
+                    if (scoreA.qty !== scoreB.qty) return scoreB.qty - scoreA.qty;
+                    return scoreB.count - scoreA.count;
+                  })}
+                keyExtractor={i => i.id.toString()}
+                renderItem={({item}) => (
+                  <TouchableOpacity
+                    onPress={()=>{setSelectedProduct(item); trackEvent('VISUALIZZA_FARMACO', item.nome); }}
+                    style={{
+                      flexDirection:'row',
+                      backgroundColor:'#fff',
+                      marginBottom:15,
+                      borderRadius:12,
+                      shadowColor:'#000',
+                      shadowOpacity:0.1,
+                      elevation:3,
+                      borderLeftWidth:6,
+                      borderColor:getProductColor(item)
+                    }}>
+                    <View style={{padding:20, flex:1}}>
+                      <View style={{flexDirection:'row', justifyContent:'space-between'}}>
+                        <Text style={{fontSize:10, fontWeight:'bold', color:getProductColor(item)}}>
+                          {getCleanCategoryName(item.categoria)}
+                        </Text>
+                      </View>
+                      <HighlightText
+                        baseStyle={{fontSize:18, fontWeight:'bold', color:'#333', marginVertical:5}}
+                        text={item.nome}
+                        term={sosSearch}
+                      />
+                      <HighlightText
+                        baseStyle={{fontSize:12, color:'#666'}}
+                        text={item.descrizione}
+                        term={sosSearch}
+                      />
+                    </View>
+                    <View style={{justifyContent:'center', paddingRight:20}}>
+                      <Ionicons name="chevron-forward" size={24} color="#ccc"/>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              />
           </SafeAreaView>
       </Modal>
 
@@ -429,7 +547,7 @@ export default function App() {
       <Modal visible={showFavModal} animationType="slide" onRequestClose={()=>setShowFavModal(false)}>
           <SafeAreaView style={{flex:1, backgroundColor:'#fff'}}>
               <View style={{padding:20, borderBottomWidth:1, borderColor:'#eee', flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}><Text style={{fontSize:22, fontWeight:'bold', color:THEME.danger}}>I MIEI PREFERITI ❤️</Text><TouchableOpacity onPress={()=>setShowFavModal(false)}><Ionicons name="close" size={30}/></TouchableOpacity></View>
-              {favorites.length === 0 ? ( <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><Ionicons name="heart-dislike-outline" size={60} color="#ccc"/><Text style={{color:'#999', marginTop:10}}>Nessun prodotto nei preferiti</Text></View> ) : ( <FlatList contentContainerStyle={{padding:15}} data={productsDB.filter(p => favorites.includes(p.id))} keyExtractor={i => i.id.toString()} renderItem={({item}) => { const inCart = cartItems.some(p=>p.id===item.id); const inMix = mixItems.some(p=>p.id===item.id); return ( <View style={[styles.card, {borderColor: item.colore || '#eee', borderWidth: 2}, (inCart || inMix) && {backgroundColor:'#f9f9f9'}]}><TouchableOpacity style={styles.cardLeft} onPress={()=>toggleFavorite(item.id)}><Ionicons name="heart" size={26} color={THEME.danger}/></TouchableOpacity><TouchableOpacity style={styles.cardCenter} onPress={()=>{setSelectedProduct(item); }}><Text style={styles.cardBrand}>{item.marca}</Text><Text style={styles.cardTitle}>{item.nome}</Text><Text style={styles.cardSub}>{item.categoria}</Text></TouchableOpacity><View style={styles.cardRight}><TouchableOpacity onPress={() => toggleMix(item)} style={{marginBottom:15}}><View style={{backgroundColor:inMix?THEME.primary:'#fff', padding:8, borderRadius:8, borderWidth:1, borderColor:inMix?THEME.primary:THEME.secondary}}><Ionicons name={inMix?"flask":"flask-outline"} size={22} color={inMix?"#fff":THEME.iconInactive}/></View></TouchableOpacity><TouchableOpacity onPress={() => toggleCart(item)}><View style={{backgroundColor:inCart?THEME.accent:'#fff', padding:8, borderRadius:8, borderWidth:1, borderColor:inCart?THEME.accent:THEME.secondary}}><Ionicons name={inCart?"cart":"cart-outline"} size={22} color={inCart?"#fff":THEME.iconInactive}/></View></TouchableOpacity></View></View> ); }} /> )}
+              {favorites.length === 0 ? ( <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><Ionicons name="heart-dislike-outline" size={60} color="#ccc"/><Text style={{color:'#999', marginTop:10}}>Nessun prodotto nei preferiti</Text></View> ) : ( <FlatList contentContainerStyle={{padding:15}} data={productsDB.filter(p => favorites.includes(p.id))} keyExtractor={i => i.id.toString()} renderItem={({item}) => { const inCart = cartItems.some(p=>p.id===item.id); const inMix = mixItems.some(p=>p.id===item.id); return ( <View style={[styles.card, {borderColor: getProductColor(item), borderWidth: 2}, (inCart || inMix) && {backgroundColor:'#f9f9f9'}]}><TouchableOpacity style={styles.cardLeft} onPress={()=>toggleFavorite(item.id)}><Ionicons name="heart" size={26} color={THEME.danger}/></TouchableOpacity><TouchableOpacity style={styles.cardCenter} onPress={()=>{setSelectedProduct(item); }}><Text style={styles.cardBrand}>{item.marca}</Text><Text style={styles.cardTitle}>{item.nome}</Text><Text style={styles.cardSub}>{item.categoria}</Text></TouchableOpacity><View style={styles.cardRight}><TouchableOpacity onPress={() => toggleMix(item)} style={{marginBottom:15}}><View style={{backgroundColor:inMix?THEME.primary:'#fff', padding:8, borderRadius:8, borderWidth:1, borderColor:inMix?THEME.primary:THEME.secondary}}><Ionicons name={inMix?"flask":"flask-outline"} size={22} color={inMix?"#fff":THEME.iconInactive}/></View></TouchableOpacity><TouchableOpacity onPress={() => toggleCart(item)}><View style={{backgroundColor:inCart?THEME.accent:'#fff', padding:8, borderRadius:8, borderWidth:1, borderColor:inCart?THEME.accent:THEME.secondary}}><Ionicons name={inCart?"cart":"cart-outline"} size={22} color={inCart?"#fff":THEME.iconInactive}/></View></TouchableOpacity></View></View> ); }} /> )}
           </SafeAreaView>
       </Modal>
 
@@ -482,7 +600,7 @@ export default function App() {
       <Modal visible={selectedProduct!==null} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setSelectedProduct(null)}>
         {selectedProduct && (
             <View style={{flex:1, backgroundColor:'#fff'}}>
-                <View style={{backgroundColor: selectedProduct.colore || '#C8E6C9', padding:15, paddingTop:15, paddingBottom:15}}>
+                <View style={{backgroundColor: getProductColor(selectedProduct), padding:15, paddingTop:15, paddingBottom:15}}>
                       <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start'}}>
                           <TouchableOpacity onPress={()=>setSelectedProduct(null)} style={{marginBottom:5}}><Ionicons name="close-circle" size={32} color={'rgba(0,0,0,0.5)'}/></TouchableOpacity>
                       </View>
